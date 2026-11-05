@@ -11,10 +11,6 @@ Before changing ACPI or selecting a different satellite, collect the touchpad ha
 ## Wi-Fi — not working, excluded
 
 
-## Audio, microphone and Fn keys — not working
-
-AppleALC, SimpleHDA, AsusSMC and BrightnessKeys retain their supplied flags. Their presence does not establish working audio, microphone or Fn keys. Collect codec/PCI IDs, routing and ASUS ACPI hotkey events before choosing fixes. The parent's Dell SoundWire audio driver is not a validated ASUS solution.
-
 ## Sleep / wake — untested
 
 
