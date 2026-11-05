@@ -1,46 +1,24 @@
-# ASUS Vivobook X1605VA — experimental Hackintosh EFI
+# ASUS Vivobook X1605VA OpenCore EFI
 
-**Development snapshot only. Not ready for installation or daily use.** 
+Experimental OpenCore 1.0.8 configuration for the ASUS Vivobook X1605VA with an Intel Core i5-13500H and Iris Xe graphics (`8086:A7A0`). The system was tested on macOS Tahoe 26.7.2 (`25G332`). The EFI includes the Golden Gate picker theme.
 
-## Hardware
+The public `EFI/OC/config.plist` retains the `MacBookPro16,2` SMBIOS model. Fill in your own serial number, MLB, UUID and ROM before booting the public config.
 
-| Component | This laptop |
+| Function | Status |
 | --- | --- |
-| Model | ASUS Vivobook X1605VA |
-| CPU | Intel Core i5-13500H |
-| Integrated GPU | Intel Iris Xe, PCI `8086:A7A0` |
-| Graphics topology settings | 80 EU / 6 L3 banks, preserved from the supplied EFI |
-| SMBIOS template | `MacBookPro16,2`; private identity fields removed |
-| macOS | Installed version/build not yet recorded; inherited patch scripts target Tahoe 26.7.1 (`25G241`) |
+| Iris Xe | Acceleration reported with the macOS-side graphics patches installed |
+| Speakers | Working with AppleALC, SimpleHDA and layout 5 |
+| Internal microphone | Input appears, but recording stalls |
+| Bluetooth | MT7902 firmware loader included. BlueToolFixup 2.7.2 restored after a reboot regression. Retest pending |
+| Wi-Fi | Experimental MT7902 driver 0.2.14 included. Retest pending |
+| Trackpad | Unresolved |
+| USB mouse, battery and keyboard lighting | Working |
+| Screen brightness | XeShim utility included. Fn brightness control unresolved |
+| Sleep and wake | Untested |
 
-Model, CPU and GPU ID were read from Windows on this laptop. RAM, storage, panel, wireless hardware and touchpad ACPI identity still need an inventory. GPU topology settings were preserved, not inferred from the PCI ID alone.
+Use [install steps 6 and 7](docs/INSTALL.md) for the display tools and moving OpenCore to the internal disk. Graphics acceleration also requires the macOS-side driver and patches. See the [graphics notes](docs/ASUS-GRAPHICS.md) and [upstream patch guide](https://github.com/JulioNectar/Hackintosh-XPS13Plus-IrisXe-Tahoe/blob/main/docs/INSTALL.md).
 
-## Current status
-
-| Function | Status on this ASUS |
-| --- | --- |
-| Graphics acceleration | **Working**   |
-| Wi-Fi |   No driver (yet)|
-| Bluetooth | Worked once. Fails again after reboot |
-| Trackpad | **Not working** |
-| Camera | **Working** |
-| Speaker | **Working** |
-| Microphone | Built-in input appears but recording stalls. See [audio investigation](docs/RPL_PORT.md) |
-| Fn keys | **Not all keys were tested**, volume and keyboard baclight works |
-| Sleep / wake | **Untested** |
-| Brightness control|  tools/xe-shim  |
-| External displays and other functions | **Unverified** |
-
-Kext presence does not establish that a device works. Dell hardware results in inherited documentation do not describe this ASUS.
-
-Read the [graphics notes](docs/ASUS-GRAPHICS.md), and [remaining hardware work](docs/ASUS-HARDWARE.md).
-
-See [install steps 6 and 7](docs/INSTALL.md) for the display utilities and moving OpenCore to the internal disk.
-
-## Graphics patch source
-
-Graphics must follow the parent project's [installation and patch guide](https://github.com/JulioNectar/Hackintosh-XPS13Plus-IrisXe-Tahoe/blob/main/docs/INSTALL.md), especially its kernel and user-space sections. Acceleration requires macOS-side driver bundles and patches as well as the EFI.
-
+See the [hardware notes](docs/ASUS-HARDWARE.md) and the [microphone routing assessment](docs/RPL_PORT.md).
 
 ## Credits and licensing
 
