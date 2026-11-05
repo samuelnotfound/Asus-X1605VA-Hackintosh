@@ -9,7 +9,7 @@ Choose the template that matches your Wi-Fi hardware. Copy it to `EFI/OC/config.
 | [`config-realtek.plist`](EFI/OC/config-realtek.plist) | Core i9-13900H with Realtek RTL8821CE (`10ec:c821`) |
 | [`config-mediatek.plist`](EFI/OC/config-mediatek.plist) | Core i5-13500H with MediaTek MT7902 (`14c3:7902`) |
 
-Both templates use the original AMFIPass and AppleALC from the author's OpenCore partition and retain `MacBookPro16,2`. Fill in your own serial number, MLB, UUID and ROM in the boot copy.
+AppleALC was recompiled for our ASUS Vivobook X1605VA setup.
 
 | Function | Status |
 | --- | --- |
