@@ -2,15 +2,15 @@
 
 Experimental OpenCore 1.0.8 configuration for the ASUS Vivobook X1605VA with an Intel Core i5-13500H and Iris Xe graphics (`8086:A7A0`). The system was tested on macOS Tahoe 26.7.2 (`25G332`). The EFI includes the Golden Gate picker theme.
 
-The public `EFI/OC/config.plist` retains the `MacBookPro16,2` SMBIOS model. Fill in your own serial number, MLB, UUID and ROM before booting the public config.
+The default `EFI/OC/config.plist` is for supported Realtek PCIe Wi-Fi cards. For an MT7902 laptop, copy `EFI/OC/config-mediatek.plist` to `EFI/OC/config.plist` before booting. Both use the original AMFIPass and AppleALC from the author's OpenCore partition. Fill in your own serial number, MLB, UUID and ROM in the config you use. Both templates retain `MacBookPro16,2`.
 
 | Function | Status |
 | --- | --- |
 | Iris Xe | Acceleration reported with the macOS-side graphics patches installed |
 | Speakers | Working with AppleALC, SimpleHDA and layout 5 |
 | Internal microphone | Input appears, but recording stalls |
-| Bluetooth | MT7902 firmware loader included. BlueToolFixup 2.7.2 restored after a reboot regression. Retest pending |
-| Wi-Fi | Experimental MT7902 driver 0.2.14 included. Retest pending |
+| Bluetooth | MediaTek config includes the MT7902 firmware loader and BlueToolFixup. Realtek Bluetooth is untested |
+| Wi-Fi | Realtek is the default test config. The MediaTek config includes the experimental MT7902 driver 0.2.14 |
 | Trackpad | Unresolved |
 | USB mouse, battery and keyboard lighting | Working |
 | Screen brightness | XeShim utility included. Fn brightness control unresolved |
@@ -19,6 +19,8 @@ The public `EFI/OC/config.plist` retains the `MacBookPro16,2` SMBIOS model. Fill
 Use [install steps 6 and 7](docs/INSTALL.md) for the display tools and moving OpenCore to the internal disk. Graphics acceleration also requires the macOS-side driver and patches. See the [graphics notes](docs/ASUS-GRAPHICS.md) and [upstream patch guide](https://github.com/JulioNectar/Hackintosh-XPS13Plus-IrisXe-Tahoe/blob/main/docs/INSTALL.md).
 
 See the [hardware notes](docs/ASUS-HARDWARE.md) and the [microphone routing assessment](docs/RPL_PORT.md).
+
+The Realtek config targets RTL8821CE (`10ec:c821`, `10ec:b821`), RTL8822BE (`10ec:b822`) and RTL8822CE (`10ec:c822`, `10ec:c82f`). The configuration and kext files have been checked locally. Realtek Wi-Fi on this laptop and Tahoe still needs a boot test. [RTL88WiFi source at the bundled revision](https://github.com/X1REN41L/RTL88WiFi/tree/8cebe79209d05e8760e17603af6a344941920381) · [License](licenses/RTL88WiFi-GPL-2.0.txt) · [Notices](licenses/RTL88WiFi-NOTICE.md)
 
 ## Credits and licensing
 
