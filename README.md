@@ -1,10 +1,10 @@
 # ASUS Vivobook X1605VA OpenCore EFI
 
-Experimental OpenCore 1.0.8 configurations for the ASUS Vivobook X1605VA. The i5-13500H MediaTek system was tested on macOS Tahoe 26.7.2 (`25G332`). The reported i9-13900H Realtek system also has Intel Iris Xe graphics (`8086:A7A0`). The EFI includes the Golden Gate picker theme.
+Experimental OpenCore 1.0.8 configurations tested on both ASUS Vivobook X1605VA variants listed below. Both have Intel Iris Xe graphics (`8086:A7A0`). The i5-13500H MediaTek test used macOS Tahoe 26.7.2 (`25G332`). The EFI includes the Golden Gate picker theme.
 
 Choose the template that matches your Wi-Fi hardware. Copy it to `EFI/OC/config.plist` on your boot drive before booting.
 
-| Template | Reported X1605VA configuration |
+| Template | Tested X1605VA configuration |
 | --- | --- |
 | [`config-realtek.plist`](EFI/OC/config-realtek.plist) | Core i9-13900H with Realtek RTL8821CE (`10ec:c821`) |
 | [`config-mediatek.plist`](EFI/OC/config-mediatek.plist) | Core i5-13500H with MediaTek MT7902 (`14c3:7902`) |
@@ -27,7 +27,7 @@ Use [install steps 6 and 7](docs/INSTALL.md) for the display tools and moving Op
 
 See the [hardware notes](docs/ASUS-HARDWARE.md) and the [microphone routing assessment](docs/RPL_PORT.md).
 
-The Realtek config targets RTL8821CE (`10ec:c821`, `10ec:b821`), RTL8822BE (`10ec:b822`) and RTL8822CE (`10ec:c822`, `10ec:c82f`). The configuration and kext files have been checked locally. Realtek Wi-Fi on this laptop and Tahoe still needs a boot test. [RTL88WiFi source at the bundled revision](https://github.com/X1REN41L/RTL88WiFi/tree/8cebe79209d05e8760e17603af6a344941920381) · [License](licenses/RTL88WiFi-GPL-2.0.txt) · [Notices](licenses/RTL88WiFi-NOTICE.md)
+The Realtek config was tested on the i9-13900H X1605VA with RTL8821CE (`10ec:c821`). The upstream driver also lists RTL8821CE (`10ec:b821`), RTL8822BE (`10ec:b822`) and RTL8822CE (`10ec:c822`, `10ec:c82f`). [RTL88WiFi source at the bundled revision](https://github.com/X1REN41L/RTL88WiFi/tree/8cebe79209d05e8760e17603af6a344941920381) · [License](licenses/RTL88WiFi-GPL-2.0.txt) · [Notices](licenses/RTL88WiFi-NOTICE.md)
 
 ## Credits and licensing
 
