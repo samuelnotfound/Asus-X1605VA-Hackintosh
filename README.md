@@ -35,6 +35,8 @@ Kext presence does not establish that a device works. Dell hardware results in i
 
 Read the [graphics notes](docs/ASUS-GRAPHICS.md), and [remaining hardware work](docs/ASUS-HARDWARE.md).
 
+See [install steps 6 and 7](docs/INSTALL.md) for the display utilities and moving OpenCore to the internal disk.
+
 ## Graphics patch source
 
 Graphics must follow the parent project's [installation and patch guide](https://github.com/JulioNectar/Hackintosh-XPS13Plus-IrisXe-Tahoe/blob/main/docs/INSTALL.md), especially its kernel and user-space sections. Acceleration requires macOS-side driver bundles and patches as well as the EFI.
