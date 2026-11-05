@@ -2095,7 +2095,7 @@
 				<key>revcpu</key>
 				<integer>1</integer>
 				<key>revcpuname</key>
-				<string>13th Gen Intel(R) Core(TM) i5-13500H</string>
+				<string>13th Gen Intel(R) Core(TM) i9-13900H</string>
 				<key>revpatch</key>
 				<string>sbvmm,cpuname</string>
 				<key>rtc-blacklist</key>

@@ -1,8 +1,15 @@
 # ASUS Vivobook X1605VA OpenCore EFI
 
-Experimental OpenCore 1.0.8 configuration for the ASUS Vivobook X1605VA with an Intel Core i5-13500H and Iris Xe graphics (`8086:A7A0`). The system was tested on macOS Tahoe 26.7.2 (`25G332`). The EFI includes the Golden Gate picker theme.
+Experimental OpenCore 1.0.8 configurations for the ASUS Vivobook X1605VA. The i5-13500H MediaTek system was tested on macOS Tahoe 26.7.2 (`25G332`). The reported i9-13900H Realtek system also has Intel Iris Xe graphics (`8086:A7A0`). The EFI includes the Golden Gate picker theme.
 
-The default `EFI/OC/config.plist` is for supported Realtek PCIe Wi-Fi cards. For an MT7902 laptop, copy `EFI/OC/config-mediatek.plist` to `EFI/OC/config.plist` before booting. Both use the original AMFIPass and AppleALC from the author's OpenCore partition. Fill in your own serial number, MLB, UUID and ROM in the config you use. Both templates retain `MacBookPro16,2`.
+Choose the template that matches your Wi-Fi hardware. Copy it to `EFI/OC/config.plist` on your boot drive before booting.
+
+| Template | Reported X1605VA configuration |
+| --- | --- |
+| [`config-realtek.plist`](EFI/OC/config-realtek.plist) | Core i9-13900H with Realtek RTL8821CE (`10ec:c821`) |
+| [`config-mediatek.plist`](EFI/OC/config-mediatek.plist) | Core i5-13500H with MediaTek MT7902 (`14c3:7902`) |
+
+Both templates use the original AMFIPass and AppleALC from the author's OpenCore partition and retain `MacBookPro16,2`. Fill in your own serial number, MLB, UUID and ROM in the boot copy.
 
 | Function | Status |
 | --- | --- |
@@ -10,7 +17,7 @@ The default `EFI/OC/config.plist` is for supported Realtek PCIe Wi-Fi cards. For
 | Speakers | Working with AppleALC, SimpleHDA and layout 5 |
 | Internal microphone | Input appears, but recording stalls |
 | Bluetooth | MediaTek config includes the MT7902 firmware loader and BlueToolFixup. Realtek Bluetooth is untested |
-| Wi-Fi | Realtek is the default test config. The MediaTek config includes the experimental MT7902 driver 0.2.14 |
+| Wi-Fi | The Realtek test config uses RTL88WiFi. The MediaTek config includes the experimental MT7902 driver 0.2.14 |
 | Trackpad | Unresolved |
 | USB mouse, battery and keyboard lighting | Working |
 | Screen brightness | XeShim utility included. Fn brightness control unresolved |
