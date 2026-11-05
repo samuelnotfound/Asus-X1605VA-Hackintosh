@@ -21,11 +21,11 @@ Model, CPU and GPU ID were read from Windows on this laptop. RAM, storage, panel
 | --- | --- |
 | Graphics acceleration | **Working**   |
 | Wi-Fi |   No driver (yet)|
-| Bluetooth| Working |
+| Bluetooth | Worked once. Fails again after reboot |
 | Trackpad | **Not working** |
 | Camera | **Working** |
 | Speaker | **Working** |
-| Microphone | **Not working** |
+| Microphone | Built-in input appears but recording stalls. See [audio investigation](docs/RPL_PORT.md) |
 | Fn keys | **Not all keys were tested**, volume and keyboard baclight works |
 | Sleep / wake | **Untested** |
 | Brightness control|  tools/xe-shim  |
