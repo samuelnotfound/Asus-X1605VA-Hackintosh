@@ -1,6 +1,6 @@
 # ASUS Vivobook X1605VA OpenCore EFI
 
-Experimental OpenCore 1.0.8 configurations tested on both ASUS Vivobook X1605VA variants listed below. Both have Intel Iris Xe graphics (`8086:A7A0`). The i5-13500H MediaTek test used macOS Tahoe 26.7.2 (`25G332`). The EFI includes the Golden Gate picker theme.
+Both ASUS Vivobook X1605VA variants listed below were tested on macOS Tahoe 26.7.2 with OpenCore 1.0.8. Both have Intel Iris Xe graphics (`8086:A7A0`). The EFI includes the Golden Gate picker theme.
 
 Choose the template that matches your Wi-Fi hardware. Copy it to `EFI/OC/config.plist` on your boot drive before booting.
 
