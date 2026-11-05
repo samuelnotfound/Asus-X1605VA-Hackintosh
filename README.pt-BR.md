@@ -1,7 +1,5 @@
-# ASUS Vivobook X1605VA — EFI experimental
+# ASUS Vivobook X1605VA Hackintosh
 
-Este fork usa a EFI atual do proprietário do ASUS X1605VA com i5-13500H. **Snapshot de desenvolvimento, não está pronto para uso.**
+As variantes do ASUS X1605VA com i5-13500H e Wi-Fi MediaTek e com i9-13900H e Wi-Fi Realtek foram testadas com o macOS Tahoe 26.7.2. O Wi-Fi MediaTek ainda não é compatível.
 
-A aceleração gráfica funciona segundo o proprietário. Wi-Fi, trackpad, áudio interno, microfone e teclas Fn não funcionam. Suspensão/retorno não foram testados; brilho ainda não foi confirmado. As kexts de Wi-Fi e o papel de parede foram removidos da cópia do repositório.
-
-Veja o [README principal](README.md) para o estado atual e o guia de patches gráficos do projeto pai. Resultados herdados sobre o Dell XPS não confirmam compatibilidade com este ASUS.
+Consulte o [README principal](README.md) para escolher o perfil da EFI e ver as instruções de aceleração gráfica e o estado do hardware.

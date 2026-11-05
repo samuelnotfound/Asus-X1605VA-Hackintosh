@@ -26,7 +26,7 @@ $ids = @{}
 $kernel = Value (Value $root 'Kernel') 'Add'
 foreach ($entry in $kernel.SelectNodes('dict')) {
     $bundle = (Value $entry 'BundlePath').InnerText
-    if ($bundle -match '(?i)(itlwm|itlmt7902|AirportItlwm|AirportBrcm|BrcmPatchRAM)') {
+    if ($bundle -match '(?i)(itlwm|itlmt[0-9]+|AirportItlwm|AirportBrcm|BrcmPatchRAM)') {
         $problems.Add("Wireless entry remains: $bundle")
     }
     if ((Value $entry 'Enabled').Name -ne 'true') { continue }
@@ -55,7 +55,7 @@ foreach ($file in Get-ChildItem -LiteralPath $efi -Recurse -Force -File) {
     if ($file.Name -like '._*') { $problems.Add("AppleDouble metadata remains: $($file.Name)") }
 }
 foreach ($bundle in Get-ChildItem -LiteralPath (Join-Path $oc 'Kexts') -Recurse -Directory -Filter '*.kext') {
-    if ($bundle.Name -match '(?i)(itlwm|itlmt7902|AirportItlwm|AirportBrcm|BrcmPatchRAM)') { $problems.Add("Wireless bundle remains: $($bundle.Name)") }
+    if ($bundle.Name -match '(?i)(itlwm|itlmt[0-9]+|AirportItlwm|AirportBrcm|BrcmPatchRAM)') { $problems.Add("Wireless bundle remains: $($bundle.Name)") }
 }
 CheckFile 'OpenCore.efi'
 if (-not (Test-Path -LiteralPath (Join-Path $efi 'BOOT/BOOTX64.EFI'))) { $problems.Add('Missing BOOTX64.EFI') }
