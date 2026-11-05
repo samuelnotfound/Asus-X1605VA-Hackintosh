@@ -1,0 +1,18 @@
+#!/bin/zsh
+set -euo pipefail
+
+if [[ ${3:-} != / || $(/usr/bin/uname -m) != x86_64 ]]; then
+  print -u2 'Select the running Intel macOS startup volume.'
+  exit 1
+fi
+
+version=$(/usr/bin/sw_vers -productVersion)
+if [[ ${version%%.*} != 26 ]]; then
+  print -u2 "This graphics package targets macOS Tahoe 26.x. Found $version."
+  exit 1
+fi
+
+build=$(/usr/bin/sw_vers -buildVersion)
+if [[ $build != 25G241 ]]; then
+  print -u2 "Experimental on Tahoe $version ($build). The parent patches target 25G241."
+fi

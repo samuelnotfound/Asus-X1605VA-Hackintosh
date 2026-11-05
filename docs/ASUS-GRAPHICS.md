@@ -28,6 +28,18 @@ When testing resumes, the parent's `zsh install.sh` performs macOS-side installa
 
 The parent's Dell tuning values `ngreenblmax=17777` and `ngreenpm=22` are absent from this baseline. Do not add them as generic graphics requirements. Dell audio, fingerprint and haptic tools are unrelated to establishing ASUS graphics acceleration.
 
+## Build the offline graphics package with GitHub Actions
+
+1. Once the workflow is on the default branch, open **Actions → Build offline Iris Xe package → Run workflow**. An Intel macOS runner uses the parent's build scripts and Xcode tools to prepare the graphics files.
+2. Download the run artifact while online. Unzip it and run `ASUS-X1605VA-IrisXe-Offline.pkg` on the offline ASUS. The package runs the parent macOS installer with its bundled driver files and the system tools already on macOS.
+3. Approve the kexts if macOS prompts, then reboot. Check `kmutil showloaded` and Metal support with the commands below. The inherited installer reports `kmutil` output and allows installation to finish while kext approval is pending, so Installer success alone cannot confirm acceleration.
+
+The workflow uploads the package directly. Signed-in GitHub users with read access to the public repository can download the artifact during its seven-day retention period.
+
+The package accepts any Intel Tahoe 26.x build. It logs a warning outside the parent's `25G241` reference build because the graphics patches still depend on private macOS interfaces. Keep a working backup before testing. Boot with the ASUS OpenCore EFI and its NootedGreen kext as described above.
+
+The generated package is unsigned. Gatekeeper may require an **Open Anyway** exception when opening it. Normal offline Gatekeeper assessment requires a Developer ID Installer signature, successful notarization and a stapled ticket. Notarization would happen on the online build side and is separate from macOS approval to load the graphics kexts. See [Apple's packaging guide](https://developer.apple.com/documentation/xcode/packaging-mac-software-for-distribution).
+
 ## Evidence for later macOS testing
 
 ```sh

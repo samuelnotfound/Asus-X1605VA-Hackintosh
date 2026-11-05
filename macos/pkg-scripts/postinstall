@@ -1,0 +1,4 @@
+#!/bin/zsh
+set -euo pipefail
+HERE=${0:A:h}
+exec /bin/zsh "$HERE/macos/install-macos.sh" "$HERE/sle" "$HERE/le"

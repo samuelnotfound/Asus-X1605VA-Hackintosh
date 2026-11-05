@@ -74,7 +74,8 @@ else print -P "  %F{cyan}Mode:%f %Bfirst install%b"; fi
 step 1 "Checks"
 [[ $(uname -m) == x86_64 ]] && ok "Intel Mac (x86_64)" || fail "this only works on Intel (x86_64)"
 BUILD=$(sw_vers -buildVersion)
-if [[ $BUILD == $BUILD_REQ ]]; then ok "macOS $(sw_vers -productVersion) ($BUILD)"
+if [[ "$1" == "--build-only" ]]; then info "Build host: macOS $(sw_vers -productVersion) ($BUILD)"
+elif [[ $BUILD == $BUILD_REQ ]]; then ok "macOS $(sw_vers -productVersion) ($BUILD)"
 else warn "macOS build is $BUILD, the patches were made for $BUILD_REQ (Tahoe 26.7.1)."
      [[ "$XE_FORCE" == 1 ]] || fail "refusing to continue (set XE_FORCE=1 to try anyway, at your own risk)"; fi
 xcode-select -p >/dev/null 2>&1 && ok "Command Line Tools" || fail "install the Command Line Tools first: xcode-select --install"
