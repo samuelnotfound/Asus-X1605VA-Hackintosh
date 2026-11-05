@@ -1,10 +1,6 @@
-# ASUS graphics baseline and parent patch workflow
-
-Preparing this repository did not install or update graphics patches on macOS. Acceleration works according to the owner; the installed macOS build and macOS-side patch versions have not been collected.
-
 ## Patch guide
 
-Follow the parent project's [INSTALL.md](https://github.com/JulioNectar/Hackintosh-XPS13Plus-IrisXe-Tahoe/blob/main/docs/INSTALL.md), especially the kernel and user-space sections, with the retained [kernel patch reference](KERNEL-PATCHES.md) and [Metal reference](METAL.md). The local `install.sh` targets **Tahoe 26.7.1, build 25G241**. Do not override its build checks based on success on a different macOS version.
+Follow the parent project's [INSTALL.md](https://github.com/JulioNectar/Hackintosh-XPS13Plus-IrisXe-Tahoe/blob/main/docs/INSTALL.md), especially the kernel and user-space sections, with the retained [kernel patch reference](KERNEL-PATCHES.md) and [Metal reference](METAL.md). The local `install.sh` targets **Tahoe 26.7.1, build 25G241**.
 
 ## Preserved settings
 
