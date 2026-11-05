@@ -1,5 +1,7 @@
 # Licensing notice
 
+> **ASUS fork note (2026-11-04):** `EFI/` now contains the owner's sanitized ASUS snapshot. Intel Wi-Fi/Bluetooth bundles and AirportItlwm described below are no longer shipped in this tree. Additional supplied kexts (including AsusSMC, AppleALC, AMFIPass, CpuTscSync, HoRNDIS, NullEthernet, SimpleHDA, XeShim and Yoga helpers) retain their respective authors' terms. Exact release/source provenance for every supplied binary has not yet been established. The historical notices below are retained for attribution, not as an inventory of the current EFI.
+
 - **This repository** (the NootedGreen fork in `src/`, the scripts, `macos/`, `tools/` except the libfprint patch noted
   below, and the documentation) is distributed under the **Thou Shalt Not Profit License 1.0** (see [LICENSE](LICENSE)),
   the license of the project it derives from, [NootedGreen](https://github.com/sgiammori/NootedGreen) by StezzaPilot.

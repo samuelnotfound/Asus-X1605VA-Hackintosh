@@ -1,5 +1,7 @@
 # Installation guide
 
+> **Inherited Dell reference.** This guide describes the parent project's XPS 13 Plus, not validated ASUS installation steps. For this fork start with [ASUS graphics notes](ASUS-GRAPHICS.md) and [ASUS hardware status](ASUS-HARDWARE.md). The Dell installer config and EFI generator described below are not working ASUS workflows. Wi-Fi is excluded from this fork.
+
 > **Same laptop (XPS 13 Plus 9320)?** The short path is `zsh make-efi.sh` (EFI with your own serials) and, after
 > installing macOS, `zsh install.sh`. See the README. This guide is the manual procedure behind those scripts.
 

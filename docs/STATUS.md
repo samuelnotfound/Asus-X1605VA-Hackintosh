@@ -1,5 +1,7 @@
 # Status (October 2026, macOS Tahoe 26.7.1 25G241)
 
+> **Inherited Dell results, not ASUS status.** For this fork see [ASUS hardware status](ASUS-HARDWARE.md) and the [README](../README.md). ASUS Wi-Fi, trackpad, internal audio, microphone and Fn keys do not work; sleep/wake is untested.
+
 ## Works
 
 - Metal desktop: WindowServer, Dock, Finder, Liquid Glass materials, Mission Control, animations at 60 Hz.

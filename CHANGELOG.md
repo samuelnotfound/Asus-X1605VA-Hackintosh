@@ -1,5 +1,7 @@
 # Changelog
 
+> **Parent project history.** Entries below describe upstream Dell development. This fork's ASUS import and current limitations are recorded in [ASUS-EFI](docs/ASUS-EFI.md) and the [README](README.md); no ASUS hardware testing was performed during repository preparation.
+
 Every change is tested on the real XPS 13 Plus 9320 before it is marked **confirmed**. Status values:
 **confirmed** (works on hardware), **testing** (built and installed, being evaluated), **reverted**, **superseded** (replaced by a later entry).
 The full story behind each item is in [docs/HISTORY.md](docs/HISTORY.md).
