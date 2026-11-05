@@ -26,7 +26,7 @@ Model, CPU and GPU ID were read from Windows on this laptop. RAM, storage, panel
 | Camera | **Working** |
 | Speaker | **Working** |
 | Microphone | **Not working** |
-| Fn keys | **Not working** |
+| Fn keys | **Not all keys were tested**, volume and keyboard baclight works |
 | Sleep / wake | **Untested** |
 | Brightness control|  tools/xe-shim  |
 | External displays and other functions | **Unverified** |
