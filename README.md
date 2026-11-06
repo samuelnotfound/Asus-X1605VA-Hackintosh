@@ -60,7 +60,8 @@ The parent project maintains the Iris Xe patches. Follow its guide for graphics 
 | --- | --- |
 | Speakers | Working with AppleALC recompiled for the X1605VA. [AppleALC fork](https://github.com/samuelnotfound/AppleALC) |
 | Internal microphone | Working |
-| Trackpad | Unresponsive |
+| Trackpad in macOS | Working on the i5 test unit with the patched VoodooI2C beta and VoodooI2CHID. [VoodooI2C fork](https://github.com/samuelnotfound/VoodooI2C) |
+| Trackpad in the OpenCore picker | Working on the i5 test unit with the custom ASUS UEFI driver. [Picker driver source](src/AsusX1605VATouchpadDxe) |
 | USB mouse, battery and keyboard backlight | Working |
 | Screen brightness | Adjustable with the XeShim utility. Brightness Fn keys are unresolved |
 | Bluetooth | Working on MediaTek. Realtek Bluetooth is untested |
@@ -71,6 +72,7 @@ The parent project maintains the Iris Xe patches. Follow its guide for graphics 
 ## Credits
 
 - ASUS EFI baseline. [Heitorpoggi’s Vivobook project](https://github.com/Heitorpoggi/ASUS-VivoBook-16X-Hackintosh-)
+- Testing the i9-13900H configuration. [MrSenaru](https://github.com/MrSenaru)
 - OpenCore and bundled kexts including Lilu, WhateverGreen, VirtualSMC, AppleALC, VoodooPS2, NVMeFix, and RestrictEvents. [Acidanthera and contributors](https://github.com/acidanthera)
 - Iris Xe graphics patches and tooling. [JulioNectar’s patch guide](https://github.com/JulioNectar/Hackintosh-XPS13Plus-IrisXe-Tahoe/blob/main/docs/INSTALL.md) · [NootedGreen](https://github.com/sgiammori/NootedGreen)
 - Bundled VoodooI2C and USBToolBox kexts. [VoodooI2C contributors](https://github.com/VoodooI2C/VoodooI2C) · [USBToolBox contributors](https://github.com/USBToolBox/kext)

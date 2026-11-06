@@ -13,6 +13,7 @@
   RestrictEvents, BrightnessKeys, CpuTopologyRebuild (acidanthera and contributors); itlwm, IntelBluetoothFirmware,
   IntelBTPatcher (OpenIntelWireless); VoodooI2C and VoodooPS2 (their authors); USBToolBox (dhinakg). See each
   project for its terms.
+- **Bundled VoodooI2C executable.** The macOS I2C1 beta is built from fork commit `5a5bd0d`. [Corresponding source](https://github.com/samuelnotfound/VoodooI2C/tree/5a5bd0da6a3ffa0365da1791b7acd0d9489c666b) · [Build workflow](https://github.com/samuelnotfound/Asus-X1605VA-Hackintosh/actions/runs/42276454262) · [GNU GPL v3](licenses/VoodooI2C-GPL-3.0.txt)
 - **`EFI/OC/Kexts/AirportItlwm.kext`** is the unmodified release build of **AirportItlwm-Tahoe v2.4.0-alpha** from
   laobamac's fork of itlwm (commit `738d4c6`, executable sha256 `259bac94…973c`), licensed under the **GNU General
   Public License v2.0** like itlwm itself; the licence text is in [licenses/itlwm-GPL-2.0.txt](licenses/itlwm-GPL-2.0.txt).
