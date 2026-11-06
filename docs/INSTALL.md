@@ -1,8 +1,54 @@
 # ASUS Vivobook X1605VA install notes
 
-These steps assume Tahoe already boots from an OpenCore USB and the macOS-side graphics components are installed. The upstream guide covers those prerequisites. Check its supported macOS build before applying patches. [Upstream installation and graphics guide](https://github.com/JulioNectar/Hackintosh-XPS13Plus-IrisXe-Tahoe/blob/main/docs/INSTALL.md)
+Start here once macOS Tahoe is installed and boots through your ASUS OpenCore EFI. [Upstream installation guide](https://github.com/JulioNectar/Hackintosh-XPS13Plus-IrisXe-Tahoe/blob/main/docs/INSTALL.md)
 
-## 6. After the first accelerated boot
+## Install or update the macOS graphics patches
+
+Open Terminal in macOS. If you need Xcode Command Line Tools, run `xcode-select --install` and wait for it to finish. Check your macOS build with `sw_vers -buildVersion` before applying the patches. [Graphics compatibility notes](ASUS-GRAPHICS.md)
+
+### First install
+
+Clone the repo to an APFS volume and enter the checkout. This example uses your home directory.
+
+```sh
+cd ~
+git clone https://github.com/samuelnotfound/Asus-X1605VA-Hackintosh.git
+cd Asus-X1605VA-Hackintosh
+```
+
+### Update an existing checkout
+
+Back up your working ASUS EFI. Open your existing checkout and pull the latest changes. Adjust the path if you cloned the repo somewhere else.
+
+```sh
+cd ~/Asus-X1605VA-Hackintosh
+git pull
+```
+
+Continue with the build and install steps below to apply the update.
+
+### Build and install
+
+Run the following from inside the checkout after completing either path above.
+
+1. **Build the graphics patches.** This downloads the dependencies and generates the patched graphics components, `build/NootedGreen.kext`, and `build/HookCase.kext`.
+
+   ```sh
+   zsh install.sh --build-only
+   ```
+
+2. **Install the macOS graphics components.** This command installs `HookCase.kext` in `/Library/Extensions`. **Do not install HookCase in the OpenCore EFI.**
+
+   ```sh
+   sudo zsh macos/install-macos.sh \
+     build/deps/NootedGreen/sle_Internal/sle \
+     build/deps/NootedGreen/sle_Internal/le
+   ```
+
+3. **Copy `NootedGreen.kext` to the EFI only.** Mount the EFI partition you boot from, back up its existing `NootedGreen.kext`, then replace `EFI/OC/Kexts/NootedGreen.kext` on that partition with the bundle from the repo’s `build/` folder. Both ASUS profiles already enable it in `Kernel > Add`.
+4. Approve the kernel extensions if macOS prompts, then reboot through that EFI and [verify acceleration](#after-the-first-accelerated-boot).
+
+## After the first accelerated boot
 
 From the repository root in macOS, build the display utilities with the Command Line Tools.
 
@@ -14,11 +60,11 @@ clang -O2 -fobjc-arc -DXECTL_NO_MAIN -o tools/build/xe-brilho \
   tools/xe-brilho.m tools/xectl.c -framework AppKit -framework IOKit
 ```
 
-Run `tools/build/xe-res` to list display modes. For example, `tools/build/xe-res w1680` selects a matching HiDPI mode if available. Run `system_profiler SPDisplaysDataType` to check Metal support.
+Run `kmutil showloaded | grep NootedGreen` to confirm the EFI kext loaded and `system_profiler SPDisplaysDataType` to check Metal support. Run `tools/build/xe-res` to list display modes. For example, `tools/build/xe-res w1680` selects a matching HiDPI mode if available.
 
 With a compatible XeShim loaded, `tools/build/xe-brilho 70` requests 70% screen brightness. To build XeShim from source, run `zsh tools/build-kext.sh XeShim`.
 
-## 7. Moving OpenCore to the internal disk
+## Moving OpenCore to the internal disk
 
 1. Use `diskutil list internal` to identify the internal EFI System Partition. Mount that partition with `sudo diskutil mount diskXsY` using its actual identifier.
 2. Back up the existing internal EFI. Copy `EFI/OC` from the USB that successfully boots this laptop to the internal EFI partition. Preserve existing Windows and other bootloader directories. If the USB uses a verified OpenCore fallback loader and the target fallback path is available, copy that loader as well.
