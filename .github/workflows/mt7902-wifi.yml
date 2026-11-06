@@ -26,9 +26,12 @@ jobs:
           app=build/ItlWiFi7922.app
           xcrun lipo "$kext/Contents/MacOS/itlmt7922" -verify_arch x86_64
           xcrun lipo "$app/Contents/MacOS/ItlWiFi7922" -verify_arch x86_64
-          xcrun otool -hv "$kext/Contents/MacOS/itlmt7922" | grep KEXT_BUNDLE
-          test "$(plutil -extract IOKitPersonalities.itlmt7922.IOPCIMatch raw "$kext/Contents/Info.plist")" = 0x790214c3
-          test "$(plutil -extract CFBundleIdentifier raw "$kext/Contents/Info.plist")" = local.x1605va.MT7902WiFi
+          file -b "$kext/Contents/MacOS/itlmt7922" | grep -F 'Mach-O 64-bit kext bundle x86_64'
+          pci_match="$(plutil -extract IOKitPersonalities.itlmt7922.IOPCIMatch raw "$kext/Contents/Info.plist")"
+          bundle_id="$(plutil -extract CFBundleIdentifier raw "$kext/Contents/Info.plist")"
+          echo "PCI match $pci_match, bundle ID $bundle_id"
+          test "$pci_match" = 0x790214c3
+          test "$bundle_id" = local.x1605va.MT7902WiFi
 
           staging="$RUNNER_TEMP/MT7902-Tahoe-test"
           mkdir "$staging"
