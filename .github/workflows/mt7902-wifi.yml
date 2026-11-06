@@ -17,30 +17,33 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - name: Build and verify the Intel kext and menu app
+      - name: Build and verify both Intel kexts
         run: |
           bash tools/build-mt7902-wifi.sh
           source_dir=(build/mt7902-wifi.*/itlmt7922-wifi-*)
           cd "${source_dir[0]}"
           kext=build/itlmt7922.kext
-          app=build/ItlWiFi7922.app
+          native=build/itlmt7902Native.kext
           xcrun lipo "$kext/Contents/MacOS/itlmt7922" -verify_arch x86_64
-          xcrun lipo "$app/Contents/MacOS/ItlWiFi7922" -verify_arch x86_64
+          xcrun lipo "$native/Contents/MacOS/itlmt7902Native" -verify_arch x86_64
           file -b "$kext/Contents/MacOS/itlmt7922" | grep -F 'Mach-O 64-bit kext bundle x86_64'
+          file -b "$native/Contents/MacOS/itlmt7902Native" | grep -F 'Mach-O 64-bit kext bundle x86_64'
           pci_match="$(plutil -extract IOKitPersonalities.itlmt7922.IOPCIMatch raw "$kext/Contents/Info.plist")"
           bundle_id="$(plutil -extract CFBundleIdentifier raw "$kext/Contents/Info.plist")"
           echo "PCI match $pci_match, bundle ID $bundle_id"
           test "$pci_match" = 0x790214c3
           test "$bundle_id" = local.x1605va.MT7902WiFi
+          test "$(plutil -extract CFBundleIdentifier raw "$native/Contents/Info.plist")" = local.x1605va.MT7902Native
+          test "$(plutil -extract IOKitPersonalities.itlmt7925Wifi.IOProviderClass raw "$native/Contents/Info.plist")" = itlmt7922
 
-          staging="$RUNNER_TEMP/MT7902-Tahoe-test"
+          staging="$RUNNER_TEMP/MT7902-Tahoe-native"
           mkdir "$staging"
-          cp -R "$kext" "$app" LICENSE NOTICE.md licenses "$staging/"
+          cp -R "$kext" "$native" LICENSE NOTICE.md licenses NATIVE-FRONTEND-LICENSE NATIVE-FRONTEND-NOTICE.md "$staging/"
           cp fw/LICENCE.mediatek "$GITHUB_WORKSPACE/docs/MT7902-WIFI.md" "$staging/"
-          ditto -c -k --keepParent "$staging" "$RUNNER_TEMP/MT7902-Tahoe-test.zip"
+          ditto -c -k --keepParent "$staging" "$RUNNER_TEMP/MT7902-Tahoe-native.zip"
       - uses: actions/upload-artifact@v4
         with:
-          name: MT7902-Tahoe-test
-          path: ${{ runner.temp }}/MT7902-Tahoe-test.zip
+          name: MT7902-Tahoe-native
+          path: ${{ runner.temp }}/MT7902-Tahoe-native.zip
           if-no-files-found: error
           retention-days: 7

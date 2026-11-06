@@ -1,3 +1,278 @@
+diff --git a/kexts/itlmt7925Native/Info.plist b/kexts/itlmt7925Native/Info.plist
+index 8e89979..d50511b 100644
+--- a/kexts/itlmt7925Native/Info.plist
++++ b/kexts/itlmt7925Native/Info.plist
+@@ -3,10 +3,10 @@
+ <plist version="1.0">
+ <dict>
+ 	<key>CFBundleDevelopmentRegion</key><string>en</string>
+-	<key>CFBundleExecutable</key><string>itlmt7925Native</string>
+-	<key>CFBundleIdentifier</key><string>com.itlmt7925.native</string>
++	<key>CFBundleExecutable</key><string>itlmt7902Native</string>
++	<key>CFBundleIdentifier</key><string>local.x1605va.MT7902Native</string>
+ 	<key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+-	<key>CFBundleName</key><string>itlmt7925Native</string>
++	<key>CFBundleName</key><string>itlmt7902Native</string>
+ 	<key>CFBundlePackageType</key><string>KEXT</string>
+ 	<key>CFBundleShortVersionString</key><string>0.1.0</string>
+ 	<key>CFBundleVersion</key><string>0.1.0</string>
+@@ -14,15 +14,16 @@
+ 	<dict>
+ 		<key>itlmt7925Wifi</key>
+ 		<dict>
+-			<key>CFBundleIdentifier</key><string>com.itlmt7925.native</string>
++			<key>CFBundleIdentifier</key><string>local.x1605va.MT7902Native</string>
+ 			<key>IOClass</key><string>itlmt7925Wifi</string>
+-			<key>IOProviderClass</key><string>itlmt7925</string>
++			<key>IOProviderClass</key><string>itlmt7922</string>
++			<key>IOPropertyMatch</key><dict><key>mt7902-native-ready</key><true/></dict>
+ 			<key>IOProbeScore</key><integer>1000</integer>
+ 		</dict>
+ 	</dict>
+ 	<key>OSBundleLibraries</key>
+ 	<dict>
+-		<key>com.itlmt7925.kext</key><string>0.1.0</string>
++		<key>local.x1605va.MT7902WiFi</key><string>0.2.0</string>
+ 		<key>com.apple.iokit.IO80211Family</key><string>1200.13.1</string>
+ 		<key>com.apple.iokit.IOSkywalkFamily</key><string>1.0</string>
+ 		<key>com.apple.driver.corecapture</key><string>1.0.4</string>
+diff --git a/kexts/itlmt7925Native/itlmt7925_iface.cpp b/kexts/itlmt7925Native/itlmt7925_iface.cpp
+index 81b0984..16ca0fc 100644
+--- a/kexts/itlmt7925Native/itlmt7925_iface.cpp
++++ b/kexts/itlmt7925Native/itlmt7925_iface.cpp
+@@ -339,8 +339,7 @@ bool itlmt7925WifiInterface::startWithInfo(IO80211Controller *controller, IOSkyw
+         }
+     }
+     itlmtTrace(ctl, "sw:addEventSource x%u ok", n);
+-    uint32_t dp = 0;
+-    if (PE_parse_boot_argn("itlmt_native_dp", &dp, sizeof(dp)) && dp) {
++    {
+         core = controller->getProvider();
+         rxRing = (RxFrame *)IOMalloc(sizeof(RxFrame) * kRxRing);
+         snap = (ItlNativeAp *)IOMalloc(sizeof(ItlNativeAp) * ITL_NATIVE_AP_MAX);
+diff --git a/kexts/itlmt7925Native/itlmt7925_iface.h b/kexts/itlmt7925Native/itlmt7925_iface.h
+index 24a142f..53339ee 100644
+--- a/kexts/itlmt7925Native/itlmt7925_iface.h
++++ b/kexts/itlmt7925Native/itlmt7925_iface.h
+@@ -11,7 +11,7 @@
+ #include "../itlmt7925/io80211/IO80211WorkQueue.h"
+ #include "../itlmt7925/io80211/IO80211InfraProtocol.h"
+ #include "skywalk_min.h"
+-#include "../itlmt7925/itl_native_bridge.h"
++#include "../../src/itl_native_bridge.h"
+ #include <IOKit/IOTimerEventSource.h>
+ #include <IOKit/IOLocks.h>
+ 
+diff --git a/kexts/itlmt7925Native/itlmt7925_wifi.cpp b/kexts/itlmt7925Native/itlmt7925_wifi.cpp
+index a6935c4..864a460 100644
+--- a/kexts/itlmt7925Native/itlmt7925_wifi.cpp
++++ b/kexts/itlmt7925Native/itlmt7925_wifi.cpp
+@@ -1,17 +1,6 @@
+ // SPDX-License-Identifier: BSD-3-Clause-Clear
+ // Copyright (c) 2026 thanhnndev and contributors
+-// itlmt7925Wifi - native IO80211Controller front end for the MT7925 (controller ABI identical on 24H32 and 25G241; the interface
+-// ABI halves differ, see docs/IO80211-ABI.md "Tahoe port").
+-//
+-// Matches the core driver (`itlmt7925`) as its provider and does nothing unless boot-arg itlmt_native=1 is set. What it does
+-// today is exactly what IO80211Controller::start() demands of a subclass (docs/IO80211-ABI-2.md, "Controller startup" and
+-// "Native stub"): a work queue before start, a real CCLogStream from getLogger(), a non-null fault reporter from
+-// getFaultReporterFromDriver() (a null one panics in findAndAttachToFaultReporter). It creates no interface, no queues, and
+-// answers every request as prohibited; the data path stays on the Ethernet front end in the core kext.
+-//
+-// Stage 2 (second boot-arg itlmt_native_if=1): after the base start it also creates the native interface
+-// (itlmt7925_iface.cpp), in the order of AppleBCMWLANCore::createSkywalkInterface: object -> attachInterface -> RegistrationInfo
+-// -> interface start (which registers pool + queues) -> detachInterface on failure. Still no radio.
++// Native Tahoe IO80211 controller for the MT7902 radio service.
+ #include "../itlmt7925/io80211/IO80211Controller.h"
+ #include "../itlmt7925/io80211/IO80211WorkQueue.h"
+ #include "corecapture_min.h"
+@@ -63,7 +52,7 @@ private:
+     uint32_t tracedCommandCount = 0;
+     uint32_t rejectedCommands = 0;
+     bool capsTraced = false;
+-    uint8_t stationAddress[6] = {0x02, 0x00, 0x79, 0x25, 0x00, 0x01};
++    uint8_t stationAddress[6] = {};
+     bool makeLogger(IOService *owner);
+     bool makeFaultReporter(IOService *owner);
+     bool makeInterface(IOService *provider);
+@@ -221,11 +210,8 @@ bool itlmt7925Wifi::makeFaultReporter(IOService *owner)
+ 
+ bool itlmt7925Wifi::start(IOService *provider)
+ {
+-    uint32_t on = 0;
+-    if (!PE_parse_boot_argn("itlmt_native", &on, sizeof(on)) || !on) {
+-        IOLog(LOGT "idle (boot-arg itlmt_native not set)\n");
++    if (provider->callPlatformFunction(ITL_NATIVE_MAC, false, stationAddress, nullptr, nullptr, nullptr) != kIOReturnSuccess)
+         return false;
+-    }
+     itlmtCallInit();
+     itlmtTrace(this, "ctl:start");
+     itlmtTrace(this, "ctl:createWorkQueue begin");
+@@ -267,17 +253,11 @@ bool itlmt7925Wifi::start(IOService *provider)
+         return true;
+     }
+     registerService();
+-    uint32_t withIf = 0;
+-    if (PE_parse_boot_argn("itlmt_native_if", &withIf, sizeof(withIf)) && withIf) {
+-        if (!makeInterface(provider)) {
+-            // the controller stays up without an interface; nothing else depends on it
+-            IOLog(LOGT "interface creation failed, controller only\n");
+-            return true;
+-        }
+-        IOLog(LOGT "controller and interface started (no radio)\n");
++    if (!makeInterface(provider)) {
++        setProperty("mt7902-interface-error", "interface creation failed");
+         return true;
+     }
+-    IOLog(LOGT "controller started (no interface: itlmt_native_if not set)\n");
++    IOLog(LOGT "MT7902 station interface started\n");
+     return true;
+ }
+ 
+@@ -298,45 +278,11 @@ IOReturn itlmt7925Wifi::getHardwareAddress(IOEthernetAddress *address)
+     return kIOReturnSuccess;
+ }
+ 
+-static bool findMac(IOService *provider, uint8_t out[6])
+-{
+-    bool found = false;
+-    // the core publishes the station address on itself in native mode (itlmt7925_m2.cpp)
+-    if (OSData *d = OSDynamicCast(OSData, provider->getProperty("IOMACAddress"))) {
+-        if (d->getLength() == 6) {
+-            memcpy(out, d->getBytesNoCopy(), 6);
+-            return true;
+-        }
+-    }
+-    if (IORegistryIterator *it = IORegistryIterator::iterateOver(provider, gIOServicePlane)) {
+-        while (!found) {
+-            IORegistryEntry *e = it->getNextObject();
+-            if (!e) break;
+-            if (OSData *d = OSDynamicCast(OSData, e->getProperty("IOMACAddress"))) {
+-                if (d->getLength() == 6) {
+-                    memcpy(out, d->getBytesNoCopy(), 6);
+-                    found = true;
+-                }
+-            }
+-        }
+-        it->release();
+-    }
+-    return found;
+-}
+-
+ // Mirrors AppleBCMWLANCore::createSkywalkInterface (0xffffff800163aaf8, ABI-2 "Native stub, stage 2"). Role 2 (LowLatency) is the
+ // only role that gets a BSD name prefix + unit in the RegistrationInfo; role 1 (primary) sets [info+0x10] = 1 and nothing else.
+ bool itlmt7925Wifi::makeInterface(IOService *provider)
+ {
+-    uint8_t mac[6];
+-    if (!findMac(provider, mac)) {
+-        // locally administered placeholder: the Ethernet front end has not published a MAC (or is not loaded)
+-        static const uint8_t fallback[6] = {0x02, 0x00, 0x79, 0x25, 0x00, 0x01};
+-        memcpy(mac, fallback, 6);
+-        IOLog(LOGT "no IOMACAddress under the core driver, using a placeholder\n");
+-    }
+-    memcpy(stationAddress, mac, sizeof(stationAddress));
+-    itlmtTrace(this, "mk:mac %s", (mac[0] == 0x02 && mac[1] == 0x00 && mac[2] == 0x79 && mac[3] == 0x25) ? "placeholder" : "from core");
++    const uint8_t *mac = stationAddress;
+     // Role 1 is the primary station interface. Role 2 (LowLatency) is a secondary one: IO80211SkywalkInterface::start needs
+     // ivars->parentInterface for it (it logs a failure at IO80211SkywalkInterface.cpp:0x1f8 otherwise), createSkywalkInterface only
+     // makes it from a bus flag and passes the parent as its 4th argument. itlmt_native_role=2 keeps the old path for comparison.
+diff --git a/kexts/itlmt7925Native/kmod_info.c b/kexts/itlmt7925Native/kmod_info.c
+index 5d9d2da..3cb4850 100644
+--- a/kexts/itlmt7925Native/kmod_info.c
++++ b/kexts/itlmt7925Native/kmod_info.c
+@@ -8,7 +8,7 @@ extern kern_return_t _start(kmod_info_t *ki, void *data);
+ extern kern_return_t _stop(kmod_info_t *ki, void *data);
+ 
+ __attribute__((visibility("default")))
+-KMOD_EXPLICIT_DECL(com.itlmt7925.native, "0.1.0", _start, _stop)
++KMOD_EXPLICIT_DECL(local.x1605va.MT7902Native, "0.1.0", _start, _stop)
+ __private_extern__ kmod_start_func_t *_realmain = 0;
+ __private_extern__ kmod_stop_func_t *_antimain = 0;
+ __private_extern__ int _kext_apple_cc = __APPLE_CC__;
+diff --git a/scripts/build.sh b/scripts/build.sh
+index 168a8ae..9185f8c 100644
+--- a/scripts/build.sh
++++ b/scripts/build.sh
+@@ -1,6 +1,6 @@
+ #!/bin/bash
+ # SPDX-License-Identifier: BSD-3-Clause-Clear
+-# Build the standalone x86_64 MT7922 kext and its menu application.
++# Build the x86_64 MT7902 radio and native Wi-Fi kexts.
+ set -euo pipefail
+ cd "$(dirname "$0")/.."
+ kernel_sdk="${MACKERNELSDK:-build/MacKernelSDK}"
+@@ -56,14 +56,23 @@ xcrun clang++ -arch x86_64 "-mmacosx-version-min=$link_min" -nostdlib \
+ xcrun strip -S "$kext/Contents/MacOS/itlmt7922"
+ plutil -lint "$kext/Contents/Info.plist"
+ file "$kext/Contents/MacOS/itlmt7922"
+-app=build/ItlWiFi7922.app
+-mkdir -p "$app/Contents/MacOS" build/swift-module-cache
+-cp app/Info.plist "$app/Contents/Info.plist"
+-xcrun swiftc -O -target x86_64-apple-macos13.0 \
+-    -debug-prefix-map "$PWD=." \
+-    -module-cache-path "$PWD/build/swift-module-cache" \
+-    app/ItlWiFi7922.swift app/SpeedTest.swift \
+-    -o "$app/Contents/MacOS/ItlWiFi7922" -framework IOKit -framework SwiftUI
+-codesign --force --sign - "$app"
+-codesign --verify --deep --strict "$app"
+-file "$app/Contents/MacOS/ItlWiFi7922"
++frontend=kexts/itlmt7925Native
++native=build/itlmt7902Native.kext
++mkdir -p "$native/Contents/MacOS"
++cp "$frontend/Info.plist" "$native/Contents/Info.plist"
++objects=()
++for name in itlmt7925_wifi itlmt7925_iface; do
++    object="build/obj/native_$name.o"
++    xcrun clang++ "${common[@]}" -std=c++17 -fapple-kext -fno-exceptions -fno-rtti \
++        -c "$frontend/$name.cpp" -o "$object"
++    objects+=("$object")
++done
++xcrun clang "${common[@]}" -c "$frontend/kmod_info.c" -o build/obj/native_kmod_info.o
++xcrun clang++ -arch x86_64 "-mmacosx-version-min=$link_min" -nostdlib \
++    -Xlinker -kext -Xlinker -no_data_const \
++    "-L$kernel_sdk/Library/x86_64" "-L$apple_sdk/usr/lib" \
++    -lkmodc++ -lkmod -lcc_kext "${objects[@]}" build/obj/native_kmod_info.o \
++    -o "$native/Contents/MacOS/itlmt7902Native"
++xcrun strip -S "$native/Contents/MacOS/itlmt7902Native"
++plutil -lint "$native/Contents/Info.plist"
++file "$native/Contents/MacOS/itlmt7902Native"
+diff --git a/src/Info.plist b/src/Info.plist
+index 5e4e70a..dc16635 100644
+--- a/src/Info.plist
++++ b/src/Info.plist
+@@ -7,7 +7,7 @@
+ 	<key>CFBundleExecutable</key>
+ 	<string>itlmt7922</string>
+ 	<key>CFBundleIdentifier</key>
+-	<string>local.experimental.itlmt7922</string>
++	<string>local.x1605va.MT7902WiFi</string>
+ 	<key>CFBundleInfoDictionaryVersion</key>
+ 	<string>6.0</string>
+ 	<key>CFBundleName</key>
+@@ -15,19 +15,19 @@
+ 	<key>CFBundlePackageType</key>
+ 	<string>KEXT</string>
+ 	<key>CFBundleShortVersionString</key>
+-	<string>0.2.2</string>
++	<string>0.2.0</string>
+ 	<key>CFBundleVersion</key>
+-	<string>0.2.2</string>
++	<string>0.2.0</string>
+ 	<key>IOKitPersonalities</key>
+ 	<dict>
+ 		<key>itlmt7922</key>
+ 		<dict>
+ 			<key>CFBundleIdentifier</key>
+-			<string>local.experimental.itlmt7922</string>
++			<string>local.x1605va.MT7902WiFi</string>
+ 			<key>IOClass</key>
+ 			<string>itlmt7922</string>
+ 			<key>IOPCIMatch</key>
+-			<string>0x061614c3 0x792214c3</string>
++			<string>0x790214c3</string>
+ 			<key>IOProbeScore</key>
+ 			<integer>2000</integer>
+ 			<key>IOProviderClass</key>
 diff --git a/src/fw_blob.c b/src/fw_blob.c
 index 925fa40..c2e5bca 100644
 --- a/src/fw_blob.c
@@ -18,43 +293,6 @@ index 925fa40..c2e5bca 100644
 +        ".incbin \"fw/WIFI_RAM_CODE_MT7902_1.bin\"\n"
          ".globl _itl_fw_ram_end\n_itl_fw_ram_end:\n"
          ".byte 0\n.text\n");
-diff --git a/src/Info.plist b/src/Info.plist
-index 5e4e70a..3b09e7b 100644
---- a/src/Info.plist
-+++ b/src/Info.plist
-@@ -7,7 +7,7 @@
- 	<key>CFBundleExecutable</key>
- 	<string>itlmt7922</string>
- 	<key>CFBundleIdentifier</key>
--	<string>local.experimental.itlmt7922</string>
-+	<string>local.x1605va.MT7902WiFi</string>
- 	<key>CFBundleInfoDictionaryVersion</key>
- 	<string>6.0</string>
- 	<key>CFBundleName</key>
-@@ -15,19 +15,19 @@
- 	<key>CFBundlePackageType</key>
- 	<string>KEXT</string>
- 	<key>CFBundleShortVersionString</key>
--	<string>0.2.2</string>
-+	<string>0.1.0</string>
- 	<key>CFBundleVersion</key>
--	<string>0.2.2</string>
-+	<string>0.1.0</string>
- 	<key>IOKitPersonalities</key>
- 	<dict>
- 		<key>itlmt7922</key>
- 		<dict>
- 			<key>CFBundleIdentifier</key>
--			<string>local.experimental.itlmt7922</string>
-+			<string>local.x1605va.MT7902WiFi</string>
- 			<key>IOClass</key>
- 			<string>itlmt7922</string>
- 			<key>IOPCIMatch</key>
--			<string>0x061614c3 0x792214c3</string>
-+			<string>0x790214c3</string>
- 			<key>IOProbeScore</key>
- 			<integer>2000</integer>
- 			<key>IOProviderClass</key>
 diff --git a/src/itl_caps.cpp b/src/itl_caps.cpp
 index ea766d5..78572ff 100644
 --- a/src/itl_caps.cpp
@@ -112,8 +350,235 @@ index 485c9b6..5e61376 100644
  // HE PHY capabilities byte 9 value that the firmware gets as "packet extension" (nominal packet padding 16 us).
  #define ITL_HE_PKT_EXT 2
  
+diff --git a/src/itl_native_bridge.h b/src/itl_native_bridge.h
+index 2d63413..3588f46 100644
+--- a/src/itl_native_bridge.h
++++ b/src/itl_native_bridge.h
+@@ -87,5 +87,6 @@ struct ItlNativeStatus {
+     uint8_t fastActive, fastNss, fastHe, fastBw;
+     uint8_t htMcs[10];
+     uint16_t vhtMcs, heMcs;
++    uint32_t beaconCount;
+ };
+ #define ITL_NATIVE_STATUS "itlmt-native-status-v1"
+diff --git a/src/itlmt7922.cpp b/src/itlmt7922.cpp
+index 8f49d91..21d3723 100644
+--- a/src/itlmt7922.cpp
++++ b/src/itlmt7922.cpp
+@@ -62,12 +62,12 @@ void itlmt7922::note(const char *fmt, uint32_t a, uint32_t b, uint32_t c)
+ // Same recipe as ItlDiag: the value must be OSData, and the sync has to be forced or it never reaches the firmware variable store
+ // (string properties were silently dropped: itlmt7922-log never showed up in Windows).
+ // NVRAM logging is for bring-up without a working macOS (read from Windows/Linux after a hang). Each write forces a flash
+-// update through the firmware, so it is off unless the boot-arg mt7922_nvlog=1 is set; the same text is always in the registry
++// update through the firmware, so it is off unless the boot-arg mt7902_nvlog=1 is set; the same text is always in the registry
+ // (ioreg -rc itlmt7922: m0-log .. m3-log, stat-log, ba-log).
+ static int gNvlog = -1;
+ static bool nvlogOn()
+ {
+-    if (gNvlog < 0) { uint32_t v = 0; gNvlog = (PE_parse_boot_argn("mt7922_nvlog", &v, sizeof(v)) && v) ? 1 : 0; }
++    if (gNvlog < 0) { uint32_t v = 0; gNvlog = (PE_parse_boot_argn("mt7902_nvlog", &v, sizeof(v)) && v) ? 1 : 0; }
+     return gNvlog == 1;
+ }
+ static void nvramSet(IORegistryEntry *opt, const char *name, const char *s, size_t n)
+@@ -143,14 +143,14 @@ void itlmt7922::dumpState()
+     uint32_t rev  = rdMapped(MT_HW_REV);
+     uint32_t lp   = rd(0x0e0000u + (MT_CONN_ON_LPCTL - 0x7c060000u));
+     note("CHIP=%08x REV=%08x LP=%08x", chip, rev, lp);
+-    IOLog("itlmt7922: ASIC revision: %04x%02x (expect 7922xx)\n", chip & 0xffff, rev & 0xff);
++    IOLog("itlmt7922: ASIC revision: %04x%02x (expect 7902xx)\n", chip & 0xffff, rev & 0xff);
+ }
+ 
+-// Debug aid: with boot-arg mt7922_hold=<seconds> repeat the log on the verbose console so it can be photographed.
++// Debug aid: with boot-arg mt7902_hold=<seconds> repeat the log on the verbose console so it can be photographed.
+ void itlmt7922::holdLog()
+ {
+     uint32_t hold = 0;
+-    if (PE_parse_boot_argn("mt7922_hold", &hold, sizeof(hold)) && hold) {
++    if (PE_parse_boot_argn("mt7902_hold", &hold, sizeof(hold)) && hold) {
+         for (uint32_t t = 0; t < hold && !shouldStop(); t += 3) {
+             IOLog("itlmt7922: [t=%us] %s\n", t, logbuf);
+             IOSleep(3000);
+@@ -161,19 +161,15 @@ void itlmt7922::holdLog()
+ bool itlmt7922::start(IOService *provider)
+ {
+     if (!super::start(provider)) return false;
+-    uint32_t stage = 3;
+     uint32_t chip = 0;
+     bool fwOwned = false;
+-    bool runM1 = false;
+     workerLock = IOLockAlloc();
+     txLock = IOLockAlloc();
+     cmdLock = IOLockAlloc();
+     nativeLock = IOLockAlloc();
+     if (!workerLock || !txLock || !cmdLock || !nativeLock) return false;
+-    uint32_t nativeDP = 0;
+-    nativeMode = PE_parse_boot_argn("mt7922_native_dp", &nativeDP, sizeof(nativeDP)) && nativeDP;
+-    setProperty("port-version","0.2.2-full-experimental");
+-    setProperty("wifi-state", "off");                         // until stage 3 establishes a link
++    setProperty("port-version","0.2.0-mt7902-native");
++    setProperty("wifi-state", "initializing");
+ 
+     pci = OSDynamicCast(IOPCIDevice, provider);
+     if (!pci) { IOLog("itlmt7922: provider is not IOPCIDevice\n"); return false; }
+@@ -184,9 +180,7 @@ bool itlmt7922::start(IOService *provider)
+     uint16_t did = pci->configRead16(kIOPCIConfigDeviceID);
+     uint16_t cmd = pci->configRead16(kIOPCIConfigCommand);
+     note("start %04x:%04x cmd=%04x",vid,did,cmd);
+-    if (vid!=0x14c3 || (did!=0x0616 && did!=0x7922)) goto fail;
+-    if (PE_parse_boot_argn("mt7922_stage",&stage,sizeof(stage))) diagnosticStage=stage<=3?stage:0;
+-    setProperty("diagnostic-stage",diagnosticStage,32);
++    if (vid!=0x14c3 || did!=0x7902) goto fail;
+ 
+     pci->setMemoryEnable(true);
+     pci->setBusMasterEnable(false);   // M0 does no DMA
+@@ -208,28 +202,19 @@ bool itlmt7922::start(IOService *provider)
+     note("own OK");
+     chip=rdA(MT_HW_CHIPID);
+     dumpState();
+-    if ((chip&0xffff)!=0x7922) { note("unsupported ASIC"); goto fail; }
++    if ((chip&0xffff)!=0x7902) { note("unsupported ASIC"); goto fail; }
+ 
+     holdLog();
+ 
+-    // Stage 3 is the default; mt7922_stage=0/1/2 selects an earlier checkpoint.
+-    runM1=diagnosticStage>0 && !m1Started;
+-    // Native mode: the Wi-Fi interface takes its station address from this service when it matches, and the address the radio
+-    // uses on air is the firmware's, read by M2. Publishing the service before that would give the interface a different
+-    // address from the one in the 802.11 headers (DHCP / ARP replies are then addressed to a station the AP never heard of).
+-    // The worker publishes (publishService) as soon as the address is known, or when M1 / M2 gave up.
+-    if (nativeMode && runM1) regPending = true;
+-    else registerService();
+-    if (runM1) {
+-        m1Started=true;
+-        workerRunning=true;
+-        retain();
+-        if (!startThread(m1Thread,this)) {
+-            workerRunning=false;
+-            release();
+-            setProperty("wifi-state","worker-failed");
+-            publishService();
+-        }
++    // Publish the core after radio initialization so the frontend sees the station MAC.
++    regPending = true;
++    workerRunning = true;
++    retain();
++    if (!startThread(m1Thread, this)) {
++        workerRunning = false;
++        release();
++        setProperty("wifi-state", "worker-failed");
++        publishService();
+     }
+     return true;
+ 
+@@ -289,7 +274,7 @@ bool itlmt7922::quiesceHardware()
+     }
+     if (stopped) {
+         txPool=false;
+-        ringFree(txWm); ringFree(txFwdl); ringFree(rxEvt); ringFree(rxWa); ringFree(rxData); ringFree(txData);
++        ringFree(txWm); ringFree(txFwdl); ringFree(rxEvt); ringFree(rxData); ringFree(txData);
+         txClrAll();
+     }
+     if (txLock) IOLockUnlock(txLock);
+diff --git a/src/itlmt7922.hpp b/src/itlmt7922.hpp
+index c7ad163..98df4f3 100644
+--- a/src/itlmt7922.hpp
++++ b/src/itlmt7922.hpp
+@@ -76,9 +76,8 @@ private:
+     bool quiesceHardware();
+     bool stopping = false, workerRunning = false, firmwareFault = false;
+     IOLock *workerLock = nullptr;
+-    uint32_t diagnosticStage = 3;
+     bool shouldStop() const { return __atomic_load_n(&stopping, __ATOMIC_ACQUIRE); }
+-    bool nativeMode = false;
++    static constexpr bool nativeMode = true;
+     IOLock *nativeLock = nullptr;
+     ItlNativeSink nativeSink = {};
+     IOPCIDevice *pci = nullptr;
+@@ -113,9 +112,8 @@ private:
+     int  m1Run();
+     void m1Main();
+     static void m1Thread(void *arg);
+-    itl_ring txWm, txFwdl, rxEvt, rxWa, rxData;
++    itl_ring txWm, txFwdl, rxEvt, rxData;
+     // M2 (boot-arg itlmt_m2=1): UNI commands, interface setup, scan, beacon parsing
+-    bool m2On = false;
+     int  uniSend(uint8_t cid, const void *payload, size_t plen, bool query, uint8_t *evOut, size_t evMax,
+                  uint32_t *evLen, uint32_t timeoutMs);
+     void handleRxPacket(const uint8_t *packet, uint32_t length);
+@@ -158,7 +156,6 @@ private:
+     int nAps = 0;
+     uint8_t mcuSeq = 0;
+     // M3 (boot-arg itlmt_m3=1, implies M2): associate to the configured network, WPA2-PSK, Ethernet interface
+-    bool m3On = false;
+     itl_ring txData;                         // band0 data TX ring (mgmt + data frames)
+     void m3log(const char *fmt, ...);
+     void m3Publish(const char *stage);
+@@ -259,7 +256,7 @@ private:
+     bool m3Xchg(const uint8_t *frame, uint32_t len, uint8_t subtype, uint8_t wantFc, uint32_t waitMs);
+     int  m3Auth();
+     int  m3Assoc();
+-    // HT/VHT (boot-arg mt7922_fast=1): advertise 11n/11ac in the association, give the firmware the AP's capabilities and let
++    // HT/VHT (boot-arg mt7902_fast=1): advertise 11n/11ac in the association, give the firmware the AP's capabilities and let
+     // its rate control choose MCS for unicast data instead of the fixed 6 Mb/s. Only used when the AP is on 5 GHz and has HT.
+     bool m3fast = false;                     // requested by the boot-arg
+     bool fastActive = false;                 // requested and the target AP supports it
+@@ -274,7 +271,7 @@ private:
+     void m3Hex(char *out, size_t outLen, const uint8_t *p, uint32_t n);
+ 
+     // ---- Block Ack, TX buffer tracking and the fallback ladder (itlmt7922_ba.cpp) ----
+-    // mt7922_fast=<level>: 1 HT/VHT rates, 2 + receive Block Ack (reorder buffer), 3 + transmit Block Ack, QoS access-category
++    // mt7902_fast=<level>: 1 HT/VHT rates, 2 + receive Block Ack (reorder buffer), 3 + transmit Block Ack, QoS access-category
+     // queue, host-assigned sequence numbers and TXFREE-tracked buffers, 4 + A-MSDU-in-A-MPDU negotiation, 5 + 160 MHz channels; HE is disabled.
+     // If a level does not work (association or handshake fails, or no unicast frame comes back from the AP after the link is
+     // up, or A-MSDUs cannot be unpacked, or the firmware reports nearly every transmission failed) the driver connects again
+@@ -283,7 +280,7 @@ private:
+     uint8_t lvl = 0;                         // level of the current attempt, 0 = legacy 6 Mb/s
+     uint8_t lvlCap = 255;                    // highest level not given up on the current network (reset when the network changes)
+     char capSsid[33] = {0};                  // the network lvlCap belongs to: kept across disconnects and failed joins, so that a
+-    uint32_t capMs = 0;                      // retry from the user starts at the level that worked, not at mt7922_fast again (10 min)
++    uint32_t capMs = 0;                      // retry from the user starts at the level that worked, not at mt7902_fast again (10 min)
+     uint8_t capBand = 0;                     // band the cap was learned on (1 = 2.4 GHz, 2 = 5 GHz): another band starts over
+     bool m3stepDown = false;                 // set when the attempt at `lvl` failed; m3Run() then retries one level lower
+     bool m3stepRadio = false;                // ... because of radio conditions (tx failing), not because the AP rejects the level
+@@ -314,7 +311,7 @@ private:
+     uint32_t stTxUni = 0, stRxUni = 0, stRxAmsdu = 0, stTxFree = 0, stTxReclaim = 0, stTxNoSlot = 0, stTxFwFail = 0, stTxFwRetry = 0;
+     uint32_t stBaReqRx = 0, stBaDecl = 0, stBaRxOn = 0, stBaTxOn = 0, stBaDel = 0, stBaBar = 0;
+     uint32_t linkUpMs = 0, lastReorderMs = 0;
+-    // How long a frame waits in a Block Ack reorder buffer for a missing earlier one (boot-arg mt7922_reo=<ms>). mac80211 uses
++    // How long a frame waits in a Block Ack reorder buffer for a missing earlier one (boot-arg mt7902_reo=<ms>). mac80211 uses
+     // 100 ms; measured here: 1258 timeouts in 536 s at 100 ms = 23 % of the time with the receive path held, while a hole is
+     // either filled by the AP's retry within a few ms or never. 30 ms keeps the retries and cuts the stalls.
+     uint32_t reoMs = 30;
+@@ -399,7 +396,6 @@ private:
+     uint32_t tgtIeLen = 0;
+     char m1buf[3072] = {0};
+     size_t m1len = 0;
+-    bool m1Started = false;
+     bool regPending = false;              // native mode: registerService() waits until the firmware MAC is known (publishService)
+     void publishService();
+     bool driverOwn();
+@@ -447,6 +443,7 @@ private:
+     size_t evlen = 0;
+     void evLog(const char *fmt, ...) __attribute__((format(printf, 2, 3)));
+     uint32_t tgtLastBcnMs = 0, lastRxDataMs = 0;
++    uint32_t tgtBcnCount = 0;
+     int8_t tgtRssi = 0;
+     void ethLink(bool up);
+ };
+diff --git a/src/itlmt7922_eth.cpp b/src/itlmt7922_eth.cpp
+index 113ea39..1ff0380 100644
+--- a/src/itlmt7922_eth.cpp
++++ b/src/itlmt7922_eth.cpp
+@@ -266,6 +266,7 @@ IOReturn itlmt7922::callPlatformFunction(const OSSymbol *name, bool wait, void *
+     if (!name) return kIOReturnBadArgument;
+     if (name->isEqualTo(ITL_NATIVE_MAC)) {
+         if (!p1) return kIOReturnBadArgument;
++        if (!getProperty("mt7902-native-ready")) return kIOReturnNotReady;
+         memcpy(p1, mac, 6);
+         return kIOReturnSuccess;
+     }
 diff --git a/src/itlmt7922_m1.cpp b/src/itlmt7922_m1.cpp
-index 4ebad09..8114e83 100644
+index 4ebad09..4206243 100644
 --- a/src/itlmt7922_m1.cpp
 +++ b/src/itlmt7922_m1.cpp
 @@ -158,12 +158,13 @@ void itlmt7922::dmaDisable()
@@ -195,17 +660,21 @@ index 4ebad09..8114e83 100644
      pci->setBusMasterEnable(true); busMasterOn=true;
      m1log("stage1 bus master enabled");
      rmwA(MT_WFSYS_SW_RST_B,WFSYS_SW_RST_B,0); IOSleep(50);
-@@ -374,8 +374,8 @@ int itlmt7922::m1Run()
+@@ -374,10 +374,10 @@ int itlmt7922::m1Run()
      dmaDisable();
      if ((rdA(MT_WFDMA0_GLO_CFG)&(GLO_TX_DMA_BUSY|GLO_RX_DMA_BUSY))!=0) return kTimeout;
      m1log("stage3 DMA disabled");
 -    if (!ringInit(txWm,17,MT_TX_RING_BASE,256,false) || !ringInit(txFwdl,16,MT_TX_RING_BASE,128,false) ||
 -        !ringInit(rxEvt,0,MT_RX_EVENT_RING_BASE,8,true) || !ringInit(rxWa,0,MT_RX_EVENT_RUNTIME_RING_BASE,512,true) ||
+-        (m3On && !ringInit(txData,MT7922_TXQ_BAND0,MT_TX_RING_BASE,2048,false,true))) { m1log("DMA allocation failed"); return kIo; }
+-    if (m2On) {
 +    if (!ringInit(txWm,MT7902_TXQ_MCU_WM,MT_TX_RING_BASE,256,false) || !ringInit(txFwdl,MT7922_TXQ_FWDL,MT_TX_RING_BASE,128,false) ||
 +        !ringInit(rxEvt,0,MT_RX_EVENT_RING_BASE,MT7902_RX_MCU_RING_SIZE,true) ||
-         (m3On && !ringInit(txData,MT7922_TXQ_BAND0,MT_TX_RING_BASE,2048,false,true))) { m1log("DMA allocation failed"); return kIo; }
-     if (m2On) {
++        !ringInit(txData,MT7922_TXQ_BAND0,MT_TX_RING_BASE,2048,false,true)) { m1log("DMA allocation failed"); return kIo; }
++    {
          static const int sizes[]={1536,512,256};
+         bool allocated=false;
+         for (unsigned i=0;i<3 && !allocated;i++) {
 @@ -386,9 +386,9 @@ int itlmt7922::m1Run()
          }
          if (!allocated) { m1log("RX data allocation failed"); return kIo; }
@@ -227,17 +696,18 @@ index 4ebad09..8114e83 100644
      rc=loadPatch(); m1log("stage7 patch rc=%d",rc); if (rc) return rc;
      rc=loadRam(); m1log("stage8 RAM rc=%d",rc); if (rc) return rc;
      if (!pollA(MT_CONN_ON_MISC,MT_TOP_MISC2_FW_N9_RDY,MT_TOP_MISC2_FW_N9_RDY,1500)) { m1log("firmware ready timeout MISC=%08x",rdA(MT_CONN_ON_MISC)); return kTimeout; }
-@@ -416,30 +416,28 @@ void itlmt7922::m1Main()
+@@ -415,31 +415,24 @@ int itlmt7922::m1Run()
+ void itlmt7922::m1Main()
  {
      uint32_t delay = 0;
-     m2On=diagnosticStage>=2; m3On=diagnosticStage>=3;
+-    m2On=diagnosticStage>=2; m3On=diagnosticStage>=3;
 -    PE_parse_boot_argn("mt7922_delay", &delay, sizeof(delay));
 +    PE_parse_boot_argn("mt7902_delay", &delay, sizeof(delay));
      if (delay>120) delay=120;
-     if (nativeMode && diagnosticStage>=3) {
-         m3On = m2On = true;
-         m1log("native datapath radio engine enabled; legacy Ethernet disabled");
-     }
+-    if (nativeMode && diagnosticStage>=3) {
+-        m3On = m2On = true;
+-        m1log("native datapath radio engine enabled; legacy Ethernet disabled");
+-    }
      uint32_t reo = 0;
 -    if (PE_parse_boot_argn("mt7922_reo", &reo, sizeof(reo)) && reo >= 5 && reo <= 500) reoMs = reo;
 -    uint32_t no160Arg = 0;
@@ -268,8 +738,36 @@ index 4ebad09..8114e83 100644
      // from kext start).
      uint32_t t0 = nowMs();
      OSDictionary *match = IOService::resourceMatching("IOBSD");
+@@ -455,24 +448,21 @@ void itlmt7922::m1Main()
+     if (firmwareFault && rc==0) rc=kIo;
+     setProperty("firmware-result",(uint32_t)rc,32);
+     if (rc) setProperty("wifi-state","firmware-failed");
+-    else if (!m2On) setProperty("wifi-state","firmware-ready");
+     m1log("RESULT rc=%d", rc);
+     char s[48];
+     snprintf(s, sizeof(s), "M1 rc=%d", rc);
+     nvramLog(s);
+-    if (rc != 0) publishService();                           // no firmware: the (radio-less) interface still has to exist
+-    if (rc == 0 && m2On && !shouldStop()) {
++    if (rc == 0 && !shouldStop()) {
+         int r2 = m2Run();
+         setProperty("scan-result",(uint32_t)r2,32);
+         if (r2) {
+             setProperty("wifi-state", "initialization-failed");
+             setProperty("wifi-error", "firmware interface setup or initial scan failed; see m2-log");
+-        } else if (!m3On) setProperty("wifi-state", "scan-complete");
++        }
+         m2log("RESULT rc=%d", r2);
+         snprintf(s, sizeof(s), "M1 rc=0 M2 rc=%d", r2);
+         nvramLog(s);
+-        publishService();                                    // normally done by m2Run() right after the address is read
+-        if (r2 == 0 && m3On && !firmwareFault && !shouldStop()) m3Supervise(); // serves connection commands until stopping
++        if (r2 == 0 && !firmwareFault && !shouldStop()) m3Supervise();
+     }
+     publishService();
+ }
 diff --git a/src/itlmt7922_m2.cpp b/src/itlmt7922_m2.cpp
-index 4ddef55..fb29e0e 100644
+index 4ddef55..bb76e42 100644
 --- a/src/itlmt7922_m2.cpp
 +++ b/src/itlmt7922_m2.cpp
 @@ -22,7 +22,7 @@ bool itlmt7922::ringPeek(itl_ring &r,const uint8_t **data,uint32_t *length,int *
@@ -314,10 +812,39 @@ index 4ddef55..fb29e0e 100644
          if (consumed==128 && r.n && r.desc.va && r.tail!=r.head &&
              (le32(r.desc.va+r.tail*16+4)&MT_DMA_CTL_DMA_DONE)) rxDmaBudget[q]++;
      }
+@@ -209,10 +210,8 @@ int itlmt7922::m2Run()
+     }
+     if (!got || length-offset>3) { m2log("NIC cap missing MAC or trailing bytes=%lu",(unsigned long)(length-offset)); return -22; }
+     while (offset<length) if (event[offset++]) return -22;
+-    if (nativeMode) mac[0]|=2;
+     setProperty("IOMACAddress",mac,6); setProperty("itlmt_mac_source","firmware");
+     m2log("MAC=%02x:%02x:%02x:%02x:%02x:%02x",mac[0],mac[1],mac[2],mac[3],mac[4],mac[5]);
+-    publishService();
+     rc=m3HwPrep(); if (rc) return rc;
+     uint8_t dev[16]={}; put16(dev+4,0); put16(dev+6,12); dev[8]=1; memcpy(dev+10,mac,6);
+     rc=uniSend(1,dev,sizeof(dev),false,event,sizeof(event),&length,3000);
 diff --git a/src/itlmt7922_m3.cpp b/src/itlmt7922_m3.cpp
-index ad11950..602d792 100644
+index ad11950..298afe8 100644
 --- a/src/itlmt7922_m3.cpp
 +++ b/src/itlmt7922_m3.cpp
+@@ -55,7 +55,7 @@ void itlmt7922::m3Publish(const char *stage)
+ // Called by rxParseFrame for every beacon / probe response. `frame` points at the 802.11 header.
+ void itlmt7922::m3Capture(const uint8_t *frame, uint32_t len, const char *ssid, uint8_t ch)
+ {
+-    if (!m3On || !m3ssid[0] || len < 36 || strcmp(ssid, m3ssid) != 0) return;
++    if (!m3ssid[0] || len < 36 || strcmp(ssid, m3ssid) != 0) return;
+     // prefer 5 GHz; otherwise keep the first one seen
+     if (tgtFound && !(ch > 14 && tgtCh <= 14)) return;
+     tgtFound = true;
+@@ -152,7 +152,7 @@ void itlmt7922::m3Event(const uint8_t *ev, uint32_t len)
+         for (uint32_t i=0;i<n;i++) text[i] = ev[46+i]>=32 && ev[46+i]<127 ? (char)ev[46+i] : '.';
+         text[n]=0; m3log("fw: %s", text);
+     }
+-    if (!m3On || m3linkUp || len < 47) return;
++    if (m3linkUp || len < 47) return;
+     if (uni && eid == UNI_ROC) {
+         // Connac2 rxd36 + event hdr4 + TLV4 -> grant data44.
+         uint16_t tag = (uint16_t)(ev[40] | (ev[41] << 8));
 @@ -200,20 +200,17 @@ void itlmt7922::m3ParseAp()
  // Features at `level` for the current AP: bit 0 A-MSDU, bit 1 HE, bit 2 160 MHz channel. Used to skip levels that change nothing.
  uint8_t itlmt7922::fastSig(uint8_t level)
@@ -375,157 +902,98 @@ index ad11950..602d792 100644
      lvl = m3fast ? (fastLevel < lvlCap ? fastLevel : lvlCap) : 0;
      for (; !shouldStop() && !firmwareFault;) {
          int rc = m3Run1();
-diff --git a/src/itlmt7922.cpp b/src/itlmt7922.cpp
-index 8f49d91..fbf48a1 100644
---- a/src/itlmt7922.cpp
-+++ b/src/itlmt7922.cpp
-@@ -62,12 +62,12 @@ void itlmt7922::note(const char *fmt, uint32_t a, uint32_t b, uint32_t c)
- // Same recipe as ItlDiag: the value must be OSData, and the sync has to be forced or it never reaches the firmware variable store
- // (string properties were silently dropped: itlmt7922-log never showed up in Windows).
- // NVRAM logging is for bring-up without a working macOS (read from Windows/Linux after a hang). Each write forces a flash
--// update through the firmware, so it is off unless the boot-arg mt7922_nvlog=1 is set; the same text is always in the registry
-+// update through the firmware, so it is off unless the boot-arg mt7902_nvlog=1 is set; the same text is always in the registry
- // (ioreg -rc itlmt7922: m0-log .. m3-log, stat-log, ba-log).
- static int gNvlog = -1;
- static bool nvlogOn()
+@@ -1234,6 +1231,7 @@ void itlmt7922::m3Link()
+     linkUpMs = t0;
+     lastReorderMs = t0;
+     m3lost = false;
++    __atomic_store_n(&tgtBcnCount, 0, __ATOMIC_RELAXED);
+     tgtLastBcnMs = 0;                                        // beacon watch is armed by the first beacon of this link
+     lastRxDataMs = t0;
+     tgtRssi = 0;
+diff --git a/src/itlmt7922_uc.cpp b/src/itlmt7922_uc.cpp
+index 6738c4c..dbc1d80 100644
+--- a/src/itlmt7922_uc.cpp
++++ b/src/itlmt7922_uc.cpp
+@@ -113,7 +113,7 @@ IOReturn itlmt7922::newUserClient(task_t owningTask, void *securityID, UInt32 ty
+ // ---------------------------------------------------------------------------------------------------------------------------
+ IOReturn itlmt7922::ucScan()
  {
--    if (gNvlog < 0) { uint32_t v = 0; gNvlog = (PE_parse_boot_argn("mt7922_nvlog", &v, sizeof(v)) && v) ? 1 : 0; }
-+    if (gNvlog < 0) { uint32_t v = 0; gNvlog = (PE_parse_boot_argn("mt7902_nvlog", &v, sizeof(v)) && v) ? 1 : 0; }
-     return gNvlog == 1;
- }
- static void nvramSet(IORegistryEntry *opt, const char *name, const char *s, size_t n)
-@@ -143,14 +143,14 @@ void itlmt7922::dumpState()
-     uint32_t rev  = rdMapped(MT_HW_REV);
-     uint32_t lp   = rd(0x0e0000u + (MT_CONN_ON_LPCTL - 0x7c060000u));
-     note("CHIP=%08x REV=%08x LP=%08x", chip, rev, lp);
--    IOLog("itlmt7922: ASIC revision: %04x%02x (expect 7922xx)\n", chip & 0xffff, rev & 0xff);
-+    IOLog("itlmt7922: ASIC revision: %04x%02x (expect 7902xx)\n", chip & 0xffff, rev & 0xff);
- }
+-    if (shouldStop() || !m3On || !cmdLock || !wstate[0]) return kIOReturnNotReady;
++    if (shouldStop() || !cmdLock || !wstate[0]) return kIOReturnNotReady;
+     IOLockLock(cmdLock);
+     uint32_t now = nowMs();
+     IOReturn r = kIOReturnSuccess;
+@@ -125,7 +125,7 @@ IOReturn itlmt7922::ucScan()
  
--// Debug aid: with boot-arg mt7922_hold=<seconds> repeat the log on the verbose console so it can be photographed.
-+// Debug aid: with boot-arg mt7902_hold=<seconds> repeat the log on the verbose console so it can be photographed.
- void itlmt7922::holdLog()
+ IOReturn itlmt7922::ucJoin(const char *ssid, const char *psk)
  {
-     uint32_t hold = 0;
--    if (PE_parse_boot_argn("mt7922_hold", &hold, sizeof(hold)) && hold) {
-+    if (PE_parse_boot_argn("mt7902_hold", &hold, sizeof(hold)) && hold) {
-         for (uint32_t t = 0; t < hold && !shouldStop(); t += 3) {
-             IOLog("itlmt7922: [t=%us] %s\n", t, logbuf);
-             IOSleep(3000);
-@@ -161,7 +161,7 @@ void itlmt7922::holdLog()
- bool itlmt7922::start(IOService *provider)
+-    if (shouldStop() || !m3On || !cmdLock || !wstate[0]) return kIOReturnNotReady;
++    if (shouldStop() || !cmdLock || !wstate[0]) return kIOReturnNotReady;
+     IOLockLock(cmdLock);
+     strlcpy(reqNet.ssid, ssid, sizeof(reqNet.ssid));
+     strlcpy(reqNet.psk, psk, sizeof(reqNet.psk));
+@@ -139,7 +139,7 @@ IOReturn itlmt7922::ucJoin(const char *ssid, const char *psk)
+ 
+ IOReturn itlmt7922::ucDisconnect()
  {
-     if (!super::start(provider)) return false;
--    uint32_t stage = 3;
-+    uint32_t stage = 1;
-     uint32_t chip = 0;
-     bool fwOwned = false;
-     bool runM1 = false;
-@@ -170,9 +170,7 @@ bool itlmt7922::start(IOService *provider)
-     cmdLock = IOLockAlloc();
-     nativeLock = IOLockAlloc();
-     if (!workerLock || !txLock || !cmdLock || !nativeLock) return false;
--    uint32_t nativeDP = 0;
--    nativeMode = PE_parse_boot_argn("mt7922_native_dp", &nativeDP, sizeof(nativeDP)) && nativeDP;
--    setProperty("port-version","0.2.2-full-experimental");
-+    setProperty("port-version","0.1.0-mt7902-experimental");
-     setProperty("wifi-state", "off");                         // until stage 3 establishes a link
+-    if (shouldStop() || !m3On || !cmdLock || !wstate[0]) return kIOReturnNotReady;
++    if (shouldStop() || !cmdLock || !wstate[0]) return kIOReturnNotReady;
+     IOLockLock(cmdLock);
+     cmdBits = (cmdBits & ~(uint32_t)CMD_JOIN) | (uint32_t)CMD_DISCONNECT;
+     bzero(&reqNet, sizeof(reqNet));
+@@ -259,7 +259,7 @@ void itlmt7922::wifiScan()
+ IOReturn itlmt7922::nativeScanReq(uint32_t *started)
+ {
+     *started = 0;
+-    if (shouldStop() || !m3On || !cmdLock || !wstate[0]) return kIOReturnNotReady;
++    if (shouldStop() || !cmdLock || !wstate[0]) return kIOReturnNotReady;
+     IOLockLock(cmdLock);
+     uint32_t now = nowMs();
+     if ((cmdBits & CMD_SCAN) || __atomic_load_n(&scanBusy, __ATOMIC_ACQUIRE)) *started = 1;      // join the queued / running scan
+@@ -276,7 +276,7 @@ IOReturn itlmt7922::nativeScanReq(uint32_t *started)
  
-     pci = OSDynamicCast(IOPCIDevice, provider);
-@@ -184,8 +182,8 @@ bool itlmt7922::start(IOService *provider)
-     uint16_t did = pci->configRead16(kIOPCIConfigDeviceID);
-     uint16_t cmd = pci->configRead16(kIOPCIConfigCommand);
-     note("start %04x:%04x cmd=%04x",vid,did,cmd);
--    if (vid!=0x14c3 || (did!=0x0616 && did!=0x7922)) goto fail;
--    if (PE_parse_boot_argn("mt7922_stage",&stage,sizeof(stage))) diagnosticStage=stage<=3?stage:0;
-+    if (vid!=0x14c3 || did!=0x7902) goto fail;
-+    if (PE_parse_boot_argn("mt7902_stage",&stage,sizeof(stage))) diagnosticStage=stage<=3?stage:0;
-     setProperty("diagnostic-stage",diagnosticStage,32);
- 
-     pci->setMemoryEnable(true);
-@@ -208,11 +206,11 @@ bool itlmt7922::start(IOService *provider)
-     note("own OK");
-     chip=rdA(MT_HW_CHIPID);
-     dumpState();
--    if ((chip&0xffff)!=0x7922) { note("unsupported ASIC"); goto fail; }
-+    if ((chip&0xffff)!=0x7902) { note("unsupported ASIC"); goto fail; }
- 
-     holdLog();
- 
--    // Stage 3 is the default; mt7922_stage=0/1/2 selects an earlier checkpoint.
-+    // Start with firmware only. Scanning and association are explicit test stages.
-     runM1=diagnosticStage>0 && !m1Started;
-     // Native mode: the Wi-Fi interface takes its station address from this service when it matches, and the address the radio
-     // uses on air is the firmware's, read by M2. Publishing the service before that would give the interface a different
-@@ -289,7 +287,7 @@ bool itlmt7922::quiesceHardware()
+ IOReturn itlmt7922::nativeJoin(const ItlNativeJoin *j)
+ {
+-    if (shouldStop() || !m3On || !cmdLock || !wstate[0]) return kIOReturnNotReady;
++    if (shouldStop() || !cmdLock || !wstate[0]) return kIOReturnNotReady;
+     if (!j || j->version != 1 || !j->ssidLen || j->ssidLen > 32) return kIOReturnBadArgument;
+     IOLockLock(cmdLock);
+     bzero(&reqNet, sizeof(reqNet));
+@@ -315,6 +315,7 @@ void itlmt7922::nativeStatus(ItlNativeStatus *s)
+ {
+     bzero(s, sizeof(*s));
+     s->version = 1;
++    s->beaconCount = __atomic_load_n(&tgtBcnCount, __ATOMIC_RELAXED);
+     uint32_t st = njState;
+     // a join in progress hides an old link that is still being torn down
+     s->state = st == ITL_NATIVE_CONNECTING ? ITL_NATIVE_CONNECTING
+@@ -454,6 +455,7 @@ void itlmt7922::apSeen(const uint8_t *p, uint32_t len, uint32_t off, const char
+     int8_t rssi = rxRssi(p, len, off);
+     if (m3linkUp && !memcmp(bssid, tgtBssid, 6)) {
+         tgtLastBcnMs = now ? now : 1;
++        __atomic_add_fetch(&tgtBcnCount, 1, __ATOMIC_RELAXED);
+         if (rssi) tgtRssi = tgtRssi ? (int8_t)((tgtRssi * 3 + rssi) / 4) : rssi;
      }
-     if (stopped) {
-         txPool=false;
--        ringFree(txWm); ringFree(txFwdl); ringFree(rxEvt); ringFree(rxWa); ringFree(rxData); ringFree(txData);
-+        ringFree(txWm); ringFree(txFwdl); ringFree(rxEvt); ringFree(rxData); ringFree(txData);
-         txClrAll();
-     }
-     if (txLock) IOLockUnlock(txLock);
-diff --git a/src/itlmt7922.hpp b/src/itlmt7922.hpp
-index c7ad163..13be960 100644
---- a/src/itlmt7922.hpp
-+++ b/src/itlmt7922.hpp
-@@ -76,7 +76,7 @@ private:
-     bool quiesceHardware();
-     bool stopping = false, workerRunning = false, firmwareFault = false;
-     IOLock *workerLock = nullptr;
--    uint32_t diagnosticStage = 3;
-+    uint32_t diagnosticStage = 1;
-     bool shouldStop() const { return __atomic_load_n(&stopping, __ATOMIC_ACQUIRE); }
-     bool nativeMode = false;
-     IOLock *nativeLock = nullptr;
-@@ -113,7 +113,7 @@ private:
-     int  m1Run();
-     void m1Main();
-     static void m1Thread(void *arg);
--    itl_ring txWm, txFwdl, rxEvt, rxWa, rxData;
-+    itl_ring txWm, txFwdl, rxEvt, rxData;
-     // M2 (boot-arg itlmt_m2=1): UNI commands, interface setup, scan, beacon parsing
-     bool m2On = false;
-     int  uniSend(uint8_t cid, const void *payload, size_t plen, bool query, uint8_t *evOut, size_t evMax,
-@@ -259,7 +259,7 @@ private:
-     bool m3Xchg(const uint8_t *frame, uint32_t len, uint8_t subtype, uint8_t wantFc, uint32_t waitMs);
-     int  m3Auth();
-     int  m3Assoc();
--    // HT/VHT (boot-arg mt7922_fast=1): advertise 11n/11ac in the association, give the firmware the AP's capabilities and let
-+    // HT/VHT (boot-arg mt7902_fast=1): advertise 11n/11ac in the association, give the firmware the AP's capabilities and let
-     // its rate control choose MCS for unicast data instead of the fixed 6 Mb/s. Only used when the AP is on 5 GHz and has HT.
-     bool m3fast = false;                     // requested by the boot-arg
-     bool fastActive = false;                 // requested and the target AP supports it
-@@ -274,7 +274,7 @@ private:
-     void m3Hex(char *out, size_t outLen, const uint8_t *p, uint32_t n);
- 
-     // ---- Block Ack, TX buffer tracking and the fallback ladder (itlmt7922_ba.cpp) ----
--    // mt7922_fast=<level>: 1 HT/VHT rates, 2 + receive Block Ack (reorder buffer), 3 + transmit Block Ack, QoS access-category
-+    // mt7902_fast=<level>: 1 HT/VHT rates, 2 + receive Block Ack (reorder buffer), 3 + transmit Block Ack, QoS access-category
-     // queue, host-assigned sequence numbers and TXFREE-tracked buffers, 4 + A-MSDU-in-A-MPDU negotiation, 5 + 160 MHz channels; HE is disabled.
-     // If a level does not work (association or handshake fails, or no unicast frame comes back from the AP after the link is
-     // up, or A-MSDUs cannot be unpacked, or the firmware reports nearly every transmission failed) the driver connects again
-@@ -283,7 +283,7 @@ private:
-     uint8_t lvl = 0;                         // level of the current attempt, 0 = legacy 6 Mb/s
-     uint8_t lvlCap = 255;                    // highest level not given up on the current network (reset when the network changes)
-     char capSsid[33] = {0};                  // the network lvlCap belongs to: kept across disconnects and failed joins, so that a
--    uint32_t capMs = 0;                      // retry from the user starts at the level that worked, not at mt7922_fast again (10 min)
-+    uint32_t capMs = 0;                      // retry from the user starts at the level that worked, not at mt7902_fast again (10 min)
-     uint8_t capBand = 0;                     // band the cap was learned on (1 = 2.4 GHz, 2 = 5 GHz): another band starts over
-     bool m3stepDown = false;                 // set when the attempt at `lvl` failed; m3Run() then retries one level lower
-     bool m3stepRadio = false;                // ... because of radio conditions (tx failing), not because the AP rejects the level
-@@ -314,7 +314,7 @@ private:
-     uint32_t stTxUni = 0, stRxUni = 0, stRxAmsdu = 0, stTxFree = 0, stTxReclaim = 0, stTxNoSlot = 0, stTxFwFail = 0, stTxFwRetry = 0;
-     uint32_t stBaReqRx = 0, stBaDecl = 0, stBaRxOn = 0, stBaTxOn = 0, stBaDel = 0, stBaBar = 0;
-     uint32_t linkUpMs = 0, lastReorderMs = 0;
--    // How long a frame waits in a Block Ack reorder buffer for a missing earlier one (boot-arg mt7922_reo=<ms>). mac80211 uses
-+    // How long a frame waits in a Block Ack reorder buffer for a missing earlier one (boot-arg mt7902_reo=<ms>). mac80211 uses
-     // 100 ms; measured here: 1258 timeouts in 536 s at 100 ms = 23 % of the time with the receive path held, while a hole is
-     // either filled by the AP's retry within a few ms or never. 30 ms keeps the retries and cuts the stalls.
-     uint32_t reoMs = 30;
+     int k = -1;
+@@ -524,13 +526,15 @@ bool itlmt7922::apInRange(const char *ssid, uint32_t maxAgeMs)
+ void itlmt7922::m3Supervise()
+ {
+     Net boot[4] = {};
+-    int nb = loadPlistNets(boot, 4);
++    int nb = nativeMode ? 0 : loadPlistNets(boot, 4);
+     Net user = {};
+     bool haveUser = false, want = nb > 0, everUp = false, away = false, bootScan = true;   // aps[] holds the M2 boot scan
+     bool userNative = false;                                 // the current `user` network was asked for by the Family (ITL_NATIVE_JOIN)
+     uint32_t fails = 0, nextTry = 0, lastProbeAll = nowMs();
+     wifiNets();                                              // the boot scan (M2) already filled aps[]
+     wifiState(want ? "connecting" : "idle", "");
++    setProperty("mt7902-native-ready", true);
++    publishService();
+     m3log("supervisor: %d configured network(s)", nb);
+     while (!shouldStop()) {
+         if (firmwareFault) {
 diff --git a/src/kmod_info.c b/src/kmod_info.c
-index 4a60c13..ac19a0b 100644
+index 4a60c13..7d18e85 100644
 --- a/src/kmod_info.c
 +++ b/src/kmod_info.c
 @@ -8,7 +8,7 @@ extern kern_return_t _start(kmod_info_t *ki, void *data);
@@ -533,7 +1001,7 @@ index 4a60c13..ac19a0b 100644
  
  __attribute__((visibility("default")))
 -KMOD_EXPLICIT_DECL(local.experimental.itlmt7922, "0.2.2", _start, _stop)
-+KMOD_EXPLICIT_DECL(local.x1605va.MT7902WiFi, "0.1.0", _start, _stop)
++KMOD_EXPLICIT_DECL(local.x1605va.MT7902WiFi, "0.2.0", _start, _stop)
  __private_extern__ kmod_start_func_t *_realmain = 0;
  __private_extern__ kmod_stop_func_t *_antimain = 0;
  __private_extern__ int _kext_apple_cc = __APPLE_CC__;
