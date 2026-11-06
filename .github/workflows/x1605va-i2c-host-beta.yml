@@ -54,8 +54,19 @@ jobs:
         working-directory: voodooi2c
         run: |
           executable=build/Build/Products/Release/VoodooI2C.kext/Contents/MacOS/VoodooI2C
-          test "$(lipo -archs "$executable")" = x86_64
-          otool -hv "$executable" | grep KEXT_BUNDLE
+          python3 - "$executable" <<'PY'
+          import pathlib
+          import struct
+          import sys
+
+          data = pathlib.Path(sys.argv[1]).read_bytes()
+          magic, cpu, subtype, filetype = struct.unpack_from("<4I", data)
+          expected = (0xFEEDFACF, 0x01000007, 0xB)
+          actual = (magic, cpu, filetype)
+          print("Mach-O magic, CPU, filetype:", *(hex(value) for value in actual))
+          if actual != expected:
+              sys.exit("Expected a thin x86_64 Mach-O kext bundle")
+          PY
           strings "$executable" > "$RUNNER_TEMP/i2c-strings"
           grep -Fx X1605VA-I2C1-Host-Mode "$RUNNER_TEMP/i2c-strings"
           grep -Fx X1605VA-I2C1-IRQ-Result "$RUNNER_TEMP/i2c-strings"
