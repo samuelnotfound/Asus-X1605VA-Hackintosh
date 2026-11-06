@@ -1,0 +1,43 @@
+name: Build experimental MT7902 Wi-Fi
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - codex/mt7902-wifi
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-26-intel
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Build and verify the Intel kext and menu app
+        run: |
+          bash tools/build-mt7902-wifi.sh
+          source_dir=(build/mt7902-wifi.*/itlmt7922-wifi-*)
+          cd "${source_dir[0]}"
+          kext=build/itlmt7922.kext
+          app=build/ItlWiFi7922.app
+          xcrun lipo -verify_arch x86_64 "$kext/Contents/MacOS/itlmt7922"
+          xcrun lipo -verify_arch x86_64 "$app/Contents/MacOS/ItlWiFi7922"
+          xcrun otool -hv "$kext/Contents/MacOS/itlmt7922" | grep KEXT_BUNDLE
+          test "$(plutil -extract IOKitPersonalities.itlmt7922.IOPCIMatch raw "$kext/Contents/Info.plist")" = 0x790214c3
+          test "$(plutil -extract CFBundleIdentifier raw "$kext/Contents/Info.plist")" = local.x1605va.MT7902WiFi
+
+          staging="$RUNNER_TEMP/MT7902-Tahoe-test"
+          mkdir "$staging"
+          cp -R "$kext" "$app" LICENSE NOTICE.md licenses "$staging/"
+          cp fw/LICENCE.mediatek "$GITHUB_WORKSPACE/docs/MT7902-WIFI.md" "$staging/"
+          ditto -c -k --keepParent "$staging" "$RUNNER_TEMP/MT7902-Tahoe-test.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MT7902-Tahoe-test
+          path: ${{ runner.temp }}/MT7902-Tahoe-test.zip
+          if-no-files-found: error
+          retention-days: 7
