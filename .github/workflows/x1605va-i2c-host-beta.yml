@@ -1,0 +1,71 @@
+name: Build X1605VA I2C1 Host Beta
+
+on:
+  push:
+    branches: [codex/x1605va-i2c-host-beta]
+    paths:
+      - .github/workflows/x1605va-i2c-host-beta.yml
+      - patches/voodooi2c-x1605va-host-beta.diff
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-15-intel
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: VoodooI2C/VoodooI2C
+          ref: 6be653a2d2234ac1f7464ebf12716314975c3920
+          path: voodooi2c
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: acidanthera/MacKernelSDK
+          ref: 3f750085caa17ec3a7880f11c11bf4f48cd6a164
+          path: voodooi2c/MacKernelSDK
+          persist-credentials: false
+      - name: Apply beta patch and prepare VoodooInput SDK
+        working-directory: voodooi2c
+        run: |
+          git apply --check ../patches/voodooi2c-x1605va-host-beta.diff
+          git apply ../patches/voodooi2c-x1605va-host-beta.diff
+          for configuration in Debug Release; do
+            archive="VoodooInput-1.1.7-$(echo "$configuration" | tr '[:lower:]' '[:upper:]').zip"
+            curl --fail --silent --show-error --location \
+              "https://github.com/acidanthera/VoodooInput/releases/download/1.1.7/$archive" \
+              -o "$RUNNER_TEMP/$archive"
+            mkdir -p "Dependencies/VoodooInput/$configuration"
+            unzip -q "$RUNNER_TEMP/$archive" -d "Dependencies/VoodooInput/$configuration"
+          done
+      - name: Build Intel kext with Xcode
+        working-directory: voodooi2c
+        run: |
+          xcodebuild -version
+          xcodebuild -workspace VoodooI2C.xcworkspace -scheme VoodooI2C \
+            -configuration Release -destination 'generic/platform=macOS' \
+            -derivedDataPath build ARCHS=x86_64 ONLY_ACTIVE_ARCH=NO CODE_SIGNING_ALLOWED=NO build
+      - name: Verify and package the replacement executable
+        working-directory: voodooi2c
+        run: |
+          executable=build/Build/Products/Release/VoodooI2C.kext/Contents/MacOS/VoodooI2C
+          test "$(lipo -archs "$executable")" = x86_64
+          otool -hv "$executable" | grep KEXT_BUNDLE
+          strings "$executable" > "$RUNNER_TEMP/i2c-strings"
+          grep -Fx X1605VA-I2C1-Host-Mode "$RUNNER_TEMP/i2c-strings"
+          grep -Fx X1605VA-I2C1-IRQ-Result "$RUNNER_TEMP/i2c-strings"
+          mkdir "$RUNNER_TEMP/x1605va-i2c-beta"
+          cp "$executable" "$RUNNER_TEMP/x1605va-i2c-beta/VoodooI2C"
+          cd "$RUNNER_TEMP/x1605va-i2c-beta"
+          shasum -a 256 VoodooI2C > SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: X1605VA-I2C1-Host-Beta
+          path: ${{ runner.temp }}/x1605va-i2c-beta/
+          if-no-files-found: error
+          retention-days: 14
