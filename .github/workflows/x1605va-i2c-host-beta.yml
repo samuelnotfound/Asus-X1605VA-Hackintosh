@@ -36,9 +36,9 @@ jobs:
           git apply --check ../patches/voodooi2c-x1605va-host-beta.diff
           git apply ../patches/voodooi2c-x1605va-host-beta.diff
           for configuration in Debug Release; do
-            archive="VoodooInput-1.1.7-$(echo "$configuration" | tr '[:lower:]' '[:upper:]').zip"
+            archive="VoodooInput-1.1.6-$(echo "$configuration" | tr '[:lower:]' '[:upper:]').zip"
             curl --fail --silent --show-error --location \
-              "https://github.com/acidanthera/VoodooInput/releases/download/1.1.7/$archive" \
+              "https://github.com/acidanthera/VoodooInput/releases/download/1.1.6/$archive" \
               -o "$RUNNER_TEMP/$archive"
             mkdir -p "Dependencies/VoodooInput/$configuration"
             unzip -q "$RUNNER_TEMP/$archive" -d "Dependencies/VoodooInput/$configuration"
