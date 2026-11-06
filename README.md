@@ -3,14 +3,50 @@
 > **Development snapshot.** This EFI is not ready for installation or daily use.
 
 Both ASUS Vivobook X1605VA variants below were tested on **macOS Tahoe 26.7.2** with **OpenCore 1.0.8**.
-## Choose an EFI profile
+
+## EFI profiles
 
 | Profile | Tested CPU | Wi-Fi adapter | Wi-Fi support |
 | --- | --- | --- | --- |
 | [`config-realtek.plist`](EFI/OC/config-realtek.plist) | Intel Core i9-13900H | Realtek RTL8821CE (`10ec:c821`) | RTL88WiFi |
 | [`config-mediatek.plist`](EFI/OC/config-mediatek.plist) | Intel Core i5-13500H | MediaTek MT7902 (`14c3:7902`) | Currently unsupported |
 
-Copy `EFI/` to your boot drive’s EFI partition. Choose the profile that matches your Wi-Fi adapter and save a copy as `EFI/OC/config.plist` on that drive. [Setup notes](docs/INSTALL.md)
+Copy `EFI/` to your boot drive’s EFI partition. Save a copy of the profile for your Wi-Fi adapter as `EFI/OC/config.plist` on that drive. [Setup notes](docs/INSTALL.md)
+
+## Hardware on the i5 test unit
+
+This inventory was collected in Windows on the i5-13500H / MediaTek unit. See the hardware status below for macOS support.
+
+| Component | Installed hardware |
+| --- | --- |
+| Motherboard | ASUS X1605VA |
+| CPU | Intel Core i5-13500H, 12 cores and 16 threads |
+| Graphics | Intel Iris Xe Graphics (`8086:a7a0`) |
+| Display | Internal `CMN1618` panel, 1920 × 1200 at 60 Hz |
+| Memory | 8 GB DDR4-3200 (2 × 4 GB, Micron and SK hynix) |
+| Storage | Samsung `MZVL4512HBLU-00BTW`, 512 GB NVMe SSD |
+| Wi-Fi | MediaTek MT7902 (`14c3:7902`, PCIe) |
+| Bluetooth | MediaTek MT7902 (`13d3:3579`, USB) |
+| Audio | Realtek ALC256 (`10ec:0256`) |
+| Trackpad | ASUS Precision Touchpad (`ASUE1306`) via Intel I²C (`8086:51e9`) |
+| Webcam | USB 2.0 HD UVC webcam (`3277:0036`) |
+| Fingerprint reader | ELAN (`04f3:0c90`, USB) |
+| USB controller | Intel xHCI (`8086:51ed`) |
+
+## Hardware on the i9 test unit
+
+This inventory is from the i9-13900H / Realtek unit.
+
+| Component | Installed hardware |
+| --- | --- |
+| Motherboard | ASUS X1605VA |
+| CPU | Intel Core i9-13900H, 14 cores and 20 threads |
+| Graphics | Intel Iris Xe Graphics (`8086:a7a0`) |
+| Memory | 16 GB DDR4-3200 (2 × 8 GB, Samsung and SK hynix) |
+| Storage | Samsung 990 PRO with heatsink, 2 TB NVMe SSD |
+| Wi-Fi | Realtek RTL8821CE (`10ec:c821`, PCIe) |
+| Audio | Realtek ALC256 (`10ec:0256`)
+|
 
 ## Graphics acceleration
 
