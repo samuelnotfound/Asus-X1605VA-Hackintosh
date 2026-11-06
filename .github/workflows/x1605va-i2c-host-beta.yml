@@ -19,8 +19,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/checkout@v4
         with:
-          repository: VoodooI2C/VoodooI2C
-          ref: 6be653a2d2234ac1f7464ebf12716314975c3920
+          repository: samuelnotfound/VoodooI2C
+          ref: 5a5bd0da6a3ffa0365da1791b7acd0d9489c666b
           path: voodooi2c
           submodules: recursive
           persist-credentials: false
@@ -30,11 +30,9 @@ jobs:
           ref: 3f750085caa17ec3a7880f11c11bf4f48cd6a164
           path: voodooi2c/MacKernelSDK
           persist-credentials: false
-      - name: Apply beta patch and prepare VoodooInput SDK
+      - name: Prepare VoodooInput SDK
         working-directory: voodooi2c
         run: |
-          git apply --check ../patches/voodooi2c-x1605va-host-beta.diff
-          git apply ../patches/voodooi2c-x1605va-host-beta.diff
           for configuration in Debug Release; do
             archive="VoodooInput-1.1.6-$(echo "$configuration" | tr '[:lower:]' '[:upper:]').zip"
             curl --fail --silent --show-error --location \
