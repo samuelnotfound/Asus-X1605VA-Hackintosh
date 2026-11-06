@@ -25,10 +25,12 @@ Use a copy of your working EFI and add both entries under OpenCore
 
 Replace any earlier MT7902 radio bundle with this package's copy. Remove
 `mt7902_stage` from the test EFI boot arguments. Keep Apple's Tahoe IO80211Family
-and IOSkywalkFamily enabled. The private interface headers were reconstructed
-for Tahoe 26.7.1 build `25G241`. Set both `MinKernel` and `MaxKernel` to
-`25.6.0` for this test. Confirm the macOS build before loading the frontend
-because the kernel version can be shared across macOS builds.
+and IOSkywalkFamily enabled. This package targets Tahoe 26.7.2 build `25G332`
+on the X1605VA. WTLKcAbi compared that build with `25G241`, the source of
+the private headers, and found matching class sizes, virtual method tables,
+and ioctl dispatch tables. Set both `MinKernel` and `MaxKernel` to
+`25.6.0` and check the build with `sw_vers` before loading the frontend.
+[Tahoe ABI comparison](https://github.com/watchthelight-labs/WTLKcAbi#status)
 
 Boot once, select your WPA2 network from macOS Wi-Fi, and verify that the Wi-Fi
 interface receives an IP address and passes traffic. To diagnose startup or
