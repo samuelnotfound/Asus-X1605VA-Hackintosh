@@ -24,8 +24,8 @@ jobs:
           cd "${source_dir[0]}"
           kext=build/itlmt7922.kext
           app=build/ItlWiFi7922.app
-          xcrun lipo -verify_arch x86_64 "$kext/Contents/MacOS/itlmt7922"
-          xcrun lipo -verify_arch x86_64 "$app/Contents/MacOS/ItlWiFi7922"
+          xcrun lipo "$kext/Contents/MacOS/itlmt7922" -verify_arch x86_64
+          xcrun lipo "$app/Contents/MacOS/ItlWiFi7922" -verify_arch x86_64
           xcrun otool -hv "$kext/Contents/MacOS/itlmt7922" | grep KEXT_BUNDLE
           test "$(plutil -extract IOKitPersonalities.itlmt7922.IOPCIMatch raw "$kext/Contents/Info.plist")" = 0x790214c3
           test "$(plutil -extract CFBundleIdentifier raw "$kext/Contents/Info.plist")" = local.x1605va.MT7902WiFi
