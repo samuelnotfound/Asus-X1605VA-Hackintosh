@@ -45,9 +45,10 @@ Follow the parent project’s update instructions for the latest graphics patche
 
 ## After the first accelerated boot
 
-From the parent graphics checkout in macOS, build the display utilities with the Command Line Tools.
+In macOS Terminal, change to the directory where you cloned the parent graphics repo, then build the display utilities with the Command Line Tools. Adjust the `cd` path if your checkout is elsewhere.
 
 ```sh
+cd ~/Hackintosh-XPS13Plus-IrisXe-Tahoe
 mkdir -p tools/build
 clang -O2 -o tools/build/xe-res tools/xe-res.c \
   -framework CoreGraphics -framework CoreFoundation
