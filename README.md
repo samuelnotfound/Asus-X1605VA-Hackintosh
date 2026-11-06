@@ -2,8 +2,7 @@
 
 > **Development snapshot.** This EFI is not ready for installation or daily use.
 
-Both ASUS Vivobook X1605VA variants below were tested on **macOS Tahoe 26.7.2** with **OpenCore 1.0.8**. Both use Intel Iris Xe graphics (`8086:A7A0`).
-
+Both ASUS Vivobook X1605VA variants below were tested on **macOS Tahoe 26.7.2** with **OpenCore 1.0.8**.
 ## Choose an EFI profile
 
 | Profile | Tested CPU | Wi-Fi adapter | Wi-Fi support |
