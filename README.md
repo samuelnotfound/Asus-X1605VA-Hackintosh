@@ -60,8 +60,8 @@ The parent project maintains the Iris Xe patches. Follow its guide for graphics 
 | --- | --- |
 | Speakers | Working with AppleALC recompiled for the X1605VA. [AppleALC fork](https://github.com/samuelnotfound/AppleALC) |
 | Internal microphone | Working |
-| Trackpad in macOS | Working on the i5 test unit with the patched VoodooI2C beta and VoodooI2CHID. [VoodooI2C fork](https://github.com/samuelnotfound/VoodooI2C) |
-| Trackpad in the OpenCore picker | Working on the i5 test unit with the custom ASUS UEFI driver. [Picker driver source](src/AsusX1605VATouchpadDxe) |
+| Trackpad in macOS | Working with the patched VoodooI2C beta and VoodooI2CHID. [VoodooI2C fork](https://github.com/samuelnotfound/VoodooI2C) |
+| Trackpad in the OpenCore picker | Working with the custom ASUS UEFI driver. [Picker driver source](src/AsusX1605VATouchpadDxe) |
 | USB mouse, battery and keyboard backlight | Working |
 | Screen brightness | Adjustable with the XeShim utility. Brightness Fn keys are unresolved |
 | Bluetooth | Working on MediaTek. Realtek Bluetooth is untested |
