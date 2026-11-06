@@ -16,20 +16,9 @@ git clone https://github.com/samuelnotfound/Asus-X1605VA-Hackintosh.git
 cd Asus-X1605VA-Hackintosh
 ```
 
-### Update an existing checkout
-
-Back up your working ASUS EFI. Open your existing checkout and pull the latest changes. Adjust the path if you cloned the repo somewhere else.
-
-```sh
-cd ~/Asus-X1605VA-Hackintosh
-git pull
-```
-
-Continue with the build and install steps below to apply the update.
-
 ### Build and install
 
-Run the following from inside the checkout after completing either path above.
+Run the following from inside the ASUS checkout.
 
 1. **Build the graphics patches.** This downloads the dependencies and generates the patched graphics components, `build/NootedGreen.kext`, and `build/HookCase.kext`.
 
@@ -47,6 +36,10 @@ Run the following from inside the checkout after completing either path above.
 
 3. **Copy `NootedGreen.kext` to the EFI only.** Mount the EFI partition you boot from, back up its existing `NootedGreen.kext`, then replace `EFI/OC/Kexts/NootedGreen.kext` on that partition with the bundle from the repo’s `build/` folder. Both ASUS profiles already enable it in `Kernel > Add`.
 4. Approve the kernel extensions if macOS prompts, then reboot through that EFI and [verify acceleration](#after-the-first-accelerated-boot).
+
+### Updating an existing graphics install
+
+Follow the parent project’s update instructions for the latest graphics patches. Keep your ASUS EFI profile and place the updated `NootedGreen.kext` in `EFI/OC/Kexts/` on the EFI you boot from. [Upstream graphics updates](https://github.com/JulioNectar/Hackintosh-XPS13Plus-IrisXe-Tahoe/blob/main/docs/INSTALL.md#updating-an-existing-install)
 
 ## After the first accelerated boot
 

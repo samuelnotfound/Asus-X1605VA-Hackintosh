@@ -16,7 +16,7 @@ Copy `EFI/` to your boot drive’s EFI partition. Choose the profile that matche
 
 Iris Xe acceleration requires the macOS graphics patches in addition to the EFI. [Graphics setup](docs/ASUS-GRAPHICS.md)
 
-To update the graphics patches, follow the ASUS install guide. [Install or update the graphics patches](docs/INSTALL.md#install-or-update-the-macos-graphics-patches) · [Verify acceleration after reboot](docs/INSTALL.md#after-the-first-accelerated-boot)
+The parent project maintains the Iris Xe patches. Follow its guide for graphics updates. [Upstream graphics updates](https://github.com/JulioNectar/Hackintosh-XPS13Plus-IrisXe-Tahoe/blob/main/docs/INSTALL.md#updating-an-existing-install) · [Verify acceleration after reboot](docs/INSTALL.md#after-the-first-accelerated-boot)
 
 ## Hardware status
 

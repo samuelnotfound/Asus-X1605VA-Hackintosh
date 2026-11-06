@@ -1,6 +1,6 @@
 ## Patch guide
 
-The ASUS install guide covers both first installs and updates. The upstream patch reference targets **Tahoe 26.7.1, build 25G241**. [ASUS install and update guide](INSTALL.md#install-or-update-the-macos-graphics-patches) · [Upstream guide](https://github.com/JulioNectar/Hackintosh-XPS13Plus-IrisXe-Tahoe/blob/main/docs/INSTALL.md) · [Kernel patches](KERNEL-PATCHES.md) · [Metal reference](METAL.md)
+Use the ASUS guide for first-time setup and the parent project’s guide for graphics updates. The upstream patch reference targets **Tahoe 26.7.1, build 25G241**. [ASUS install guide](INSTALL.md#install-or-update-the-macos-graphics-patches) · [Upstream graphics updates](https://github.com/JulioNectar/Hackintosh-XPS13Plus-IrisXe-Tahoe/blob/main/docs/INSTALL.md#updating-an-existing-install) · [Kernel patches](KERNEL-PATCHES.md) · [Metal reference](METAL.md)
 
 ## Preserved settings
 
