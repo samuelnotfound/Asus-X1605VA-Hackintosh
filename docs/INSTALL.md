@@ -8,23 +8,25 @@ Open Terminal in macOS. If you need Xcode Command Line Tools, run `xcode-select 
 
 ### First install
 
-Clone the repo to an APFS volume and enter the checkout. This example uses your home directory.
+Clone the parent graphics project to an APFS volume and enter its checkout. This example uses your home directory.
 
 ```sh
 cd ~
-git clone https://github.com/samuelnotfound/Asus-X1605VA-Hackintosh.git
-cd Asus-X1605VA-Hackintosh
+git clone https://github.com/JulioNectar/Hackintosh-XPS13Plus-IrisXe-Tahoe.git
+cd Hackintosh-XPS13Plus-IrisXe-Tahoe
 ```
 
 ### Build and install
 
-Run the following from inside the ASUS checkout.
+Run the following from inside the parent graphics checkout. Use your ASUS OpenCore EFI to boot the laptop.
 
 1. **Build the graphics patches.** This downloads the dependencies and generates the patched graphics components, `build/NootedGreen.kext`, and `build/HookCase.kext`.
 
    ```sh
    zsh install.sh --build-only
    ```
+
+   The parent script checks the macOS build even in build-only mode. If you have verified compatibility for your build and the script stops at that check, retry with `XE_FORCE=1 zsh install.sh --build-only`.
 
 2. **Install the macOS graphics components.** This command installs `HookCase.kext` in `/Library/Extensions`. **Do not install HookCase in the OpenCore EFI.**
 
@@ -43,7 +45,7 @@ Follow the parent project’s update instructions for the latest graphics patche
 
 ## After the first accelerated boot
 
-From the repository root in macOS, build the display utilities with the Command Line Tools.
+From the parent graphics checkout in macOS, build the display utilities with the Command Line Tools.
 
 ```sh
 mkdir -p tools/build
