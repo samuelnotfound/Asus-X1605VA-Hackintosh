@@ -1,6 +1,6 @@
 # ASUS Vivobook X1605VA install notes
 
-Start here once macOS Tahoe is installed and boots through your ASUS OpenCore EFI. [Upstream installation guide](https://github.com/JulioNectar/Hackintosh-XPS13Plus-IrisXe-Tahoe/blob/main/docs/INSTALL.md)
+Start here once macOS Tahoe is installed and boots through your ASUS OpenCore EFI. 
 
 ## Install or update the macOS graphics patches
 
