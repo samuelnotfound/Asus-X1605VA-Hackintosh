@@ -4,15 +4,6 @@
 
 Both ASUS Vivobook X1605VA variants below were tested on **macOS Tahoe 26.7.2** with **OpenCore 1.0.8**.
 
-## EFI profiles
-
-| Profile | Tested CPU | Wi-Fi adapter | Wi-Fi support |
-| --- | --- | --- | --- |
-| [`config-realtek.plist`](EFI/OC/config-realtek.plist) | Intel Core i9-13900H | Realtek RTL8821CE (`10ec:c821`) | RTL88WiFi |
-| [`config-mediatek.plist`](EFI/OC/config-mediatek.plist) | Intel Core i5-13500H | MediaTek MT7902 (`14c3:7902`) | Currently unsupported |
-
-Copy `EFI/` to your boot drive’s EFI partition. Save a copy of the profile for your Wi-Fi adapter as `EFI/OC/config.plist` on that drive. [Setup notes](docs/INSTALL.md)
-
 ## Hardware
 
 | Component | Installed hardware |
