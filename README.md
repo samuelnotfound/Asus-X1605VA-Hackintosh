@@ -13,9 +13,7 @@ Both ASUS Vivobook X1605VA variants below were tested on **macOS Tahoe 26.7.2** 
 
 Copy `EFI/` to your boot drive’s EFI partition. Save a copy of the profile for your Wi-Fi adapter as `EFI/OC/config.plist` on that drive. [Setup notes](docs/INSTALL.md)
 
-## Hardware on the i5 test unit
-
-This inventory was collected in Windows on the i5-13500H / MediaTek unit. See the hardware status below for macOS support.
+## Hardware
 
 | Component | Installed hardware |
 | --- | --- |
