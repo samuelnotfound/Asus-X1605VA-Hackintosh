@@ -40,6 +40,10 @@ jobs:
           test "$bundle_id" = local.x1605va.MT7902WiFi
           test "$(plutil -extract CFBundleIdentifier raw "$native/Contents/Info.plist")" = local.x1605va.MT7902Native
           test "$(plutil -extract IOKitPersonalities.itlmt7925Wifi.IOProviderClass raw "$native/Contents/Info.plist")" = itlmt7922
+          for bundle in "$kext" "$native"; do
+            plutil -lint "$bundle/Contents/Info.plist"
+            test "$(plutil -extract CFBundleVersion raw "$bundle/Contents/Info.plist")" = 0.3.0
+          done
 
           staging="$RUNNER_TEMP/MT7902-Tahoe-native"
           mkdir "$staging"

@@ -1,5 +1,40 @@
+diff --git a/codec/mt7922_rx_codec.cpp b/codec/mt7922_rx_codec.cpp
+index 63da162..914e6fe 100644
+--- a/codec/mt7922_rx_codec.cpp
++++ b/codec/mt7922_rx_codec.cpp
+@@ -101,10 +101,16 @@ Mt7922RxStatus mt7922_parse_rx_normal(const uint8_t *p, uint32_t n,
+     v.security_done = (uint8_t)(d1 >> 31);
+     v.cipher_mismatch = (uint8_t)((d1 >> 23) & 3);
+     v.fragmented = (uint8_t)((d2 >> 27) & 1);
++    v.key_id=(uint8_t)((d1>>21)&3);
+ 
+     uint32_t off = 24;
+     if ((d1 & (1u << 14)) && !advance(&off, 16, length)) return MT7922_RX_GROUPS;
+-    if ((d1 & (1u << 11)) && !advance(&off, 16, length)) return MT7922_RX_GROUPS;
++    if (d1 & (1u << 11)) {
++        uint32_t group1=off;
++        if (!advance(&off,16,length)) return MT7922_RX_GROUPS;
++        for (unsigned i=0;i<6;i++) v.packet_number|=(uint64_t)p[group1+i]<<(8*i);
++        v.pn_valid=1;
++    }
+     if ((d1 & (1u << 12)) && !advance(&off, 8, length)) return MT7922_RX_GROUPS;
+     if (d1 & (1u << 13)) {
+         const uint32_t group3 = off;
+diff --git a/codec/mt7922_rx_codec.h b/codec/mt7922_rx_codec.h
+index 31f1b95..a8c4b2a 100644
+--- a/codec/mt7922_rx_codec.h
++++ b/codec/mt7922_rx_codec.h
+@@ -29,6 +29,8 @@ struct Mt7922RxView {
+     uint8_t security_done;        // RXD1 bit 31
+     uint8_t cipher_mismatch;      // RXD1 CM / CLM; never deliver protected data
+     uint8_t fragmented;           // RXD2 fragment indication
++    uint8_t pn_valid, key_id;
++    uint64_t packet_number;       // CCMP group-1 PN, host-order 48-bit value.
+     uint8_t chain_valid_mask;
+     int16_t chain_rssi_dbm[4];
+     uint8_t phy_valid;
 diff --git a/kexts/itlmt7925Native/Info.plist b/kexts/itlmt7925Native/Info.plist
-index 8e89979..16ef869 100644
+index 8e89979..8d9b8eb 100644
 --- a/kexts/itlmt7925Native/Info.plist
 +++ b/kexts/itlmt7925Native/Info.plist
 @@ -3,26 +3,27 @@
@@ -16,8 +51,8 @@ index 8e89979..16ef869 100644
  	<key>CFBundlePackageType</key><string>KEXT</string>
 -	<key>CFBundleShortVersionString</key><string>0.1.0</string>
 -	<key>CFBundleVersion</key><string>0.1.0</string>
-+	<key>CFBundleShortVersionString</key><string>0.2.2</string>
-+	<key>CFBundleVersion</key><string>0.2.2</string>
++	<key>CFBundleShortVersionString</key><string>0.3.0</string>
++	<key>CFBundleVersion</key><string>0.3.0</string>
  	<key>IOKitPersonalities</key>
  	<dict>
  		<key>itlmt7925Wifi</key>
@@ -34,23 +69,24 @@ index 8e89979..16ef869 100644
  	<key>OSBundleLibraries</key>
  	<dict>
 -		<key>com.itlmt7925.kext</key><string>0.1.0</string>
-+		<key>local.x1605va.MT7902WiFi</key><string>0.2.2</string>
++		<key>local.x1605va.MT7902WiFi</key><string>0.3.0</string>
  		<key>com.apple.iokit.IO80211Family</key><string>1200.13.1</string>
  		<key>com.apple.iokit.IOSkywalkFamily</key><string>1.0</string>
  		<key>com.apple.driver.corecapture</key><string>1.0.4</string>
 diff --git a/kexts/itlmt7925Native/itlmt7925_iface.cpp b/kexts/itlmt7925Native/itlmt7925_iface.cpp
-index 81b0984..bf0d37f 100644
+index 81b0984..c2c4fe8 100644
 --- a/kexts/itlmt7925Native/itlmt7925_iface.cpp
 +++ b/kexts/itlmt7925Native/itlmt7925_iface.cpp
-@@ -9,6 +9,7 @@
+@@ -9,6 +9,8 @@
  //   (result 0 = success). The pool and the queues are created here directly with the IOSkywalk factories.
  #include "itlmt7925_iface.h"
  #include "ether_checksum.h"
 +#include "mt7902_join.h"
++#include "../../src/itl_channels.h"
  
  #include <IOKit/IOLib.h>
  #include <IOKit/IODeviceTreeSupport.h>
-@@ -339,8 +340,7 @@ bool itlmt7925WifiInterface::startWithInfo(IO80211Controller *controller, IOSkyw
+@@ -339,8 +341,7 @@ bool itlmt7925WifiInterface::startWithInfo(IO80211Controller *controller, IOSkyw
          }
      }
      itlmtTrace(ctl, "sw:addEventSource x%u ok", n);
@@ -60,7 +96,72 @@ index 81b0984..bf0d37f 100644
          core = controller->getProvider();
          rxRing = (RxFrame *)IOMalloc(sizeof(RxFrame) * kRxRing);
          snap = (ItlNativeAp *)IOMalloc(sizeof(ItlNativeAp) * ITL_NATIVE_AP_MAX);
-@@ -1102,31 +1102,43 @@ IOReturn itlmt7925WifiInterface::setWCL_SCAN_ABORT(void *)
+@@ -350,7 +351,7 @@ bool itlmt7925WifiInterface::startWithInfo(IO80211Controller *controller, IOSkyw
+             destroyPoolAndQueues();
+             return false;
+         }
+-        ItlNativeSink sink = {2, this, ctl, receiveFromCore, linkFromCore};
++        ItlNativeSink sink = {3, this, ctl, receiveFromCore, linkFromCore};
+         IOReturn br = core->callPlatformFunction(ITL_NATIVE_BIND, false, &sink, nullptr, nullptr, nullptr);
+         itlmtTrace(ctl, "dp:bind=%x", br);
+         if (br != kIOReturnSuccess) { destroyPoolAndQueues(); return false; }
+@@ -656,13 +657,14 @@ uint32_t itlmt7925WifiInterface::submitPackets(IOSkywalkPacket *const *packets,
+     return used;
+ }
+ 
+-void itlmt7925WifiInterface::receiveFromCore(OSObject *owner, const uint8_t *bytes, uint32_t length)
++void itlmt7925WifiInterface::receiveFromCore(OSObject *owner, const uint8_t *bytes, uint32_t length, uint32_t sequence)
+ {
+     auto *i = (itlmt7925WifiInterface *)owner;
+     if (!i->rxLock) return;
+     IOLockLock(i->rxLock);
+     uint32_t next = (i->rxHead + 1) % kRxRing;
+-    if (!i->rxRing || !bytes || length < 14 || length > 1600) { i->rxDropped++; i->rxOversize++; }
++    if (!i->radioUp || sequence!=i->radioSequence || (i->joinActive && sequence!=i->joinSeq)) { i->rxDropped++; }
++    else if (!i->rxRing || !bytes || length < 14 || length > 1600) { i->rxDropped++; i->rxOversize++; }
+     else if (next == i->rxTail) { i->rxDropped++; i->rxRingFull++; }
+     else {
+         RxFrame &f = i->rxRing[i->rxHead];
+@@ -674,12 +676,13 @@ void itlmt7925WifiInterface::receiveFromCore(OSObject *owner, const uint8_t *byt
+     IOLockUnlock(i->rxLock);
+ }
+ 
+-void itlmt7925WifiInterface::linkFromCore(OSObject *owner, bool up, uint64_t speed)
++void itlmt7925WifiInterface::linkFromCore(OSObject *owner, bool up, uint64_t speed, uint32_t sequence)
+ {
+     auto *i = (itlmt7925WifiInterface *)owner;
+     if (!i->rxLock) return;
+     IOLockLock(i->rxLock);
+-    i->radioUp = up; i->radioSpeed = speed;
++    i->radioUp = up; i->radioSpeed = speed; i->radioSequence=sequence;
++    if (!up) i->rxHead=i->rxTail=0;
+     if (!up && i->nmLinkUp) i->linkDownPending = true;      // pollControl tells the family (event 0xd8) from the tick thread
+     IOWorkLoop *loop = i->bound ? i->queued : nullptr;
+     if (loop) loop->retain();
+@@ -699,7 +702,12 @@ IOReturn itlmt7925WifiInterface::applyRadioLink(OSObject *owner, void *, void *,
+     IOLockLock(i->rxLock);
+     bool up = i->radioUp;
+     uint64_t speed = i->radioSpeed;
++    uint32_t sequence=i->radioSequence;
+     IOLockUnlock(i->rxLock);
++    if (up) {
++        ItlNativeStatus status={};
++        if (!i->queryStatus(&status) || status.joinSeq!=sequence || status.state!=ITL_NATIVE_UP) return kIOReturnAborted;
++    }
+     i->ctl->setLinkStatus(kIONetworkLinkValid | (up ? kIONetworkLinkActive : 0),
+                          up ? i->ctl->getSelectedMedium() : nullptr, up ? speed : 0);
+     itlmtTrace(i->ctl, "dp:Family link=%u begin gate=1 thread=0", up);
+@@ -978,8 +986,7 @@ const uint32_t kBeaconHeader = 0x44;
+ const uint32_t kEventScanResult = 0xc9, kEventScanDone = 0xed, kEventAssoc = 0x4e, kEventJoin = 0xd3, kEventFirstBeacon = 0xd4,
+                kEventConnect = 0xd5, kEventLinkStatus = 0xd8, kEventLqm = 0x27;
+ // 20 MHz channels the core's scan covers (itlmt7925_m2.cpp): the only channels a result can come from.
+-const uint8_t kScanChannels[] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 36, 40, 44, 48, 52, 56, 60, 64,
+-                                 100, 104, 108, 112, 116, 120, 124, 128, 132, 136, 140, 144, 149, 153, 157, 161, 165};
++const uint8_t kScanChannels[] = {ITL_CHANNELS};
+ const uint32_t kScanTimeoutTicks = 2500;       // 25 s at the 10 ms tick: the core blocks up to 15 s per scan
+ const uint32_t kJoinTimeoutTicks = 4500;       // 45 s: scan for the AP, authentication, association, handshake
+ 
+@@ -1102,36 +1109,51 @@ IOReturn itlmt7925WifiInterface::setWCL_SCAN_ABORT(void *)
      return kIOReturnSuccess;
  }
  
@@ -100,13 +201,16 @@ index 81b0984..bf0d37f 100644
 -    j.ssidLen = (uint8_t)ssidLen;
 -    memcpy(j.ssid, b + 0x20, ssidLen);
 -    memcpy(j.pmk, b + 0x50, 32);
-+    j.version = 2;
++    j.version = 3;
 +    j.ssidLen = request.ssidLength;
 +    memcpy(j.ssid, request.ssid, sizeof(j.ssid));
 +    memcpy(j.pmk, request.pmk, sizeof(j.pmk));
 +    memcpy(j.bssid, request.bssid, sizeof(j.bssid));
++    j.channelSpec=request.channelSpec; j.rsnLength=request.rsnLength;
++    memcpy(j.rsn,request.rsn,request.rsnLength);
 +    bzero(&request, sizeof(request));
      IOReturn r = core->callPlatformFunction(ITL_NATIVE_JOIN, false, &j, nullptr, nullptr, nullptr);
++    uint32_t acceptedSequence=j.sequence;
      bzero(&j, sizeof(j));
 -    if (r != kIOReturnSuccess) { itlmtTrace(ctl, "assoc:core join=%x", r); return r; }
 +    if (r != kIOReturnSuccess) {
@@ -118,8 +222,31 @@ index 81b0984..bf0d37f 100644
      ItlNativeStatus st;
      bzero(&st, sizeof(st));
      queryStatus(&st);
+     IOLockLock(rxLock);
+-    joinSeq = st.joinSeq;
++    joinSeq = acceptedSequence;
+     joinTicks = 0;
+     joinActive = true;
+     IOLockUnlock(rxLock);
+@@ -1382,6 +1404,7 @@ void itlmt7925WifiInterface::deliverScanResults()
+ // derives from the firmware event are not determined.
+ void itlmt7925WifiInterface::finishJoin(const ItlNativeStatus &st, bool ok)
+ {
++    if (ok && (st.state!=ITL_NATIVE_UP || !st.beaconCount)) return;
+     // The family's WCLNetManager only leaves LINK_DOWN on a link status indication (0xd8, byte +6 != 0): its LINK_UP event runs
+     // firstLinkUp -> linkUp -> updateBss (GET 0x1b1 WCL_BSS_INFO -> current BSS, which is what GET SSID/BSSID/CHANNEL answer from).
+     // It has to precede the join events: WCLNetManager's CONNECT_COMPLETE (from 0xd5) is only accepted after LINK_UP.
+@@ -1505,7 +1528,7 @@ void itlmt7925WifiInterface::pollControl()
+         IOLockLock(rxLock);
+         bool mine = st.joinSeq == joinSeq;
+         bool timeout = (joinTicks += 10) >= kJoinTimeoutTicks;
+-        bool up = mine && st.state == ITL_NATIVE_UP, failed = mine && st.state == ITL_NATIVE_FAILED;
++        bool up = mine && st.state == ITL_NATIVE_UP && st.beaconCount!=0, failed = mine && st.state == ITL_NATIVE_FAILED;
+         if (up || failed || timeout) joinActive = false;
+         IOLockUnlock(rxLock);
+         if (up) finishJoin(st, true);
 diff --git a/kexts/itlmt7925Native/itlmt7925_iface.h b/kexts/itlmt7925Native/itlmt7925_iface.h
-index 24a142f..53339ee 100644
+index 24a142f..8e15374 100644
 --- a/kexts/itlmt7925Native/itlmt7925_iface.h
 +++ b/kexts/itlmt7925Native/itlmt7925_iface.h
 @@ -11,7 +11,7 @@
@@ -131,6 +258,25 @@ index 24a142f..53339ee 100644
  #include <IOKit/IOTimerEventSource.h>
  #include <IOKit/IOLocks.h>
  
+@@ -74,8 +74,8 @@ public:
+     IOReturn disableDatapath() override;
+     uint8_t getNumTxQueues() override;
+     uint32_t submitPackets(IOSkywalkPacket *const *, uint32_t);
+-    static void receiveFromCore(OSObject *, const uint8_t *, uint32_t);
+-    static void linkFromCore(OSObject *, bool, uint64_t);
++    static void receiveFromCore(OSObject *, const uint8_t *, uint32_t, uint32_t);
++    static void linkFromCore(OSObject *, bool, uint64_t, uint32_t);
+     static IOReturn applyRadioLink(OSObject *, void *, void *, void *, void *);
+     static void datapathTick(OSObject *, IOTimerEventSource *);
+ 
+@@ -123,6 +123,7 @@ private:
+     IOSkywalkPacket *pendingTx[512] = {};
+     uint32_t pendingCount = 0;
+     bool dpEnabled = false, bound = false, radioUp = false;
++    uint32_t radioSequence=0;
+     bool firstTxTrace = false, firstRxTrace = false, firstCompletionTrace = false;
+     uint32_t rxFailureTraceCount = 0;
+     bool assistsTraced = false;
 diff --git a/kexts/itlmt7925Native/itlmt7925_wifi.cpp b/kexts/itlmt7925Native/itlmt7925_wifi.cpp
 index a6935c4..864a460 100644
 --- a/kexts/itlmt7925Native/itlmt7925_wifi.cpp
@@ -245,7 +391,7 @@ index a6935c4..864a460 100644
      // ivars->parentInterface for it (it logs a failure at IO80211SkywalkInterface.cpp:0x1f8 otherwise), createSkywalkInterface only
      // makes it from a bus flag and passes the parent as its 4th argument. itlmt_native_role=2 keeps the old path for comparison.
 diff --git a/kexts/itlmt7925Native/kmod_info.c b/kexts/itlmt7925Native/kmod_info.c
-index 5d9d2da..7742352 100644
+index 5d9d2da..11c68c3 100644
 --- a/kexts/itlmt7925Native/kmod_info.c
 +++ b/kexts/itlmt7925Native/kmod_info.c
 @@ -8,7 +8,7 @@ extern kern_return_t _start(kmod_info_t *ki, void *data);
@@ -253,16 +399,16 @@ index 5d9d2da..7742352 100644
  
  __attribute__((visibility("default")))
 -KMOD_EXPLICIT_DECL(com.itlmt7925.native, "0.1.0", _start, _stop)
-+KMOD_EXPLICIT_DECL(local.x1605va.MT7902Native, "0.2.2", _start, _stop)
++KMOD_EXPLICIT_DECL(local.x1605va.MT7902Native, "0.3.0", _start, _stop)
  __private_extern__ kmod_start_func_t *_realmain = 0;
  __private_extern__ kmod_stop_func_t *_antimain = 0;
  __private_extern__ int _kext_apple_cc = __APPLE_CC__;
 diff --git a/kexts/itlmt7925Native/mt7902_join.h b/kexts/itlmt7925Native/mt7902_join.h
 new file mode 100644
-index 0000000..0347c27
+index 0000000..8fab01a
 --- /dev/null
 +++ b/kexts/itlmt7925Native/mt7902_join.h
-@@ -0,0 +1,52 @@
+@@ -0,0 +1,59 @@
 +// SPDX-License-Identifier: BSD-3-Clause-Clear
 +// Tahoe WCL association fields, checked against AirportItlwm's published layout.
 +#pragma once
@@ -275,6 +421,8 @@ index 0000000..0347c27
 +    char ssid[33];
 +    uint8_t pmk[32];
 +    uint8_t bssid[6];
++    uint16_t channelSpec, rsnLength;
++    uint8_t rsn[257];
 +};
 +
 +enum class Mt7902JoinResult { Ok, Invalid, Unsupported };
@@ -298,8 +446,11 @@ index 0000000..0347c27
 +    const uint32_t cipher = mt7902JoinRead32(p + 0x48);
 +    const uint32_t lowerAuth = mt7902JoinRead32(p + 0x10);
 +    const uint32_t upperAuth = mt7902JoinRead32(p + 0x14);
++    const uint16_t rsnLength = (uint16_t)(p[0xd4] | p[0xd5]<<8);
 +    if (!candidates || candidates > 10 || length < 0x218 + candidates * 18 ||
-+        !ssidLength || ssidLength > 32 || keyLength > 32) return Mt7902JoinResult::Invalid;
++        !ssidLength || ssidLength > 32 || keyLength > 32 || rsnLength>257) return Mt7902JoinResult::Invalid;
++    if (rsnLength && (rsnLength<4 || p[0xd6]!=48 || p[0xd7]+2u!=rsnLength || p[0xd8]!=1 || p[0xd9]!=0))
++        return Mt7902JoinResult::Invalid;
 +    const uint8_t *bssid = p + 0x21c;
 +    uint8_t addressBits = 0;
 +    for (unsigned i = 0; i < 6; i++) addressBits |= bssid[i];
@@ -313,10 +464,12 @@ index 0000000..0347c27
 +    memcpy(request->ssid, p + 0x20, ssidLength);
 +    memcpy(request->pmk, p + 0x50, sizeof(request->pmk));
 +    memcpy(request->bssid, bssid, sizeof(request->bssid));
++    request->channelSpec=(uint16_t)(p[0x228] | p[0x229]<<8);
++    request->rsnLength=rsnLength; memcpy(request->rsn,p+0xd6,rsnLength);
 +    return Mt7902JoinResult::Ok;
 +}
 diff --git a/scripts/build.sh b/scripts/build.sh
-index 168a8ae..9185f8c 100644
+index 168a8ae..334d50e 100644
 --- a/scripts/build.sh
 +++ b/scripts/build.sh
 @@ -1,6 +1,6 @@
@@ -327,6 +480,15 @@ index 168a8ae..9185f8c 100644
  set -euo pipefail
  cd "$(dirname "$0")/.."
  kernel_sdk="${MACKERNELSDK:-build/MacKernelSDK}"
+@@ -30,7 +30,7 @@ cp src/Info.plist "$kext/Contents/Info.plist"
+ objects=()
+ sources=(itlmt7922 itlmt7922_m1 itlmt7922_m2 itlmt7922_m3 itlmt7922_txrx
+          itlmt7922_pwr itlmt7922_ctl itlmt7922_eth itlmt7922_ba itlmt7922_uc
+-         itl_wpa itl_caps itl_ba)
++         itl_wpa itl_caps itl_ba itl_rsn itlmt7922_rsn)
+ for name in "${sources[@]}"; do
+     object="build/obj/$name.o"
+     xcrun clang++ "${common[@]}" -std=c++17 -fapple-kext -fno-exceptions -fno-rtti \
 @@ -56,14 +56,23 @@ xcrun clang++ -arch x86_64 "-mmacosx-version-min=$link_min" -nostdlib \
  xcrun strip -S "$kext/Contents/MacOS/itlmt7922"
  plutil -lint "$kext/Contents/Info.plist"
@@ -363,7 +525,7 @@ index 168a8ae..9185f8c 100644
 +plutil -lint "$native/Contents/Info.plist"
 +file "$native/Contents/MacOS/itlmt7902Native"
 diff --git a/src/Info.plist b/src/Info.plist
-index 5e4e70a..aca4551 100644
+index 5e4e70a..094bb9a 100644
 --- a/src/Info.plist
 +++ b/src/Info.plist
 @@ -7,7 +7,7 @@
@@ -375,7 +537,17 @@ index 5e4e70a..aca4551 100644
  	<key>CFBundleInfoDictionaryVersion</key>
  	<string>6.0</string>
  	<key>CFBundleName</key>
-@@ -23,11 +23,11 @@
+@@ -15,19 +15,19 @@
+ 	<key>CFBundlePackageType</key>
+ 	<string>KEXT</string>
+ 	<key>CFBundleShortVersionString</key>
+-	<string>0.2.2</string>
++	<string>0.3.0</string>
+ 	<key>CFBundleVersion</key>
+-	<string>0.2.2</string>
++	<string>0.3.0</string>
+ 	<key>IOKitPersonalities</key>
+ 	<dict>
  		<key>itlmt7922</key>
  		<dict>
  			<key>CFBundleIdentifier</key>
@@ -466,30 +638,340 @@ index 485c9b6..5e61376 100644
  // HE PHY capabilities byte 9 value that the firmware gets as "packet extension" (nominal packet padding 16 us).
  #define ITL_HE_PKT_EXT 2
  
+diff --git a/src/itl_channels.h b/src/itl_channels.h
+new file mode 100644
+index 0000000..bddba1d
+--- /dev/null
++++ b/src/itl_channels.h
+@@ -0,0 +1,6 @@
++// SPDX-License-Identifier: BSD-3-Clause-Clear
++#pragma once
++// The implemented non-DFS 20 MHz scan plan. Frontend and radio share it.
++#define ITL_CHANNELS_2G 1,2,3,4,5,6,7,8,9,10,11,12,13
++#define ITL_CHANNELS_5G 36,40,44,48,149,153,157,161,165
++#define ITL_CHANNELS ITL_CHANNELS_2G,ITL_CHANNELS_5G
 diff --git a/src/itl_native_bridge.h b/src/itl_native_bridge.h
-index 2d63413..9c15b36 100644
+index 2d63413..ad7f9c2 100644
 --- a/src/itl_native_bridge.h
 +++ b/src/itl_native_bridge.h
-@@ -57,8 +57,9 @@ struct ItlNativeJoin {
+@@ -6,12 +6,12 @@ struct ItlNativeSink {
+     uint32_t version;
+     OSObject *owner;
+     OSObject *lifetime; // retained with each out-of-lock link callback
+-    void (*receive)(OSObject *, const uint8_t *, uint32_t);
+-    void (*link)(OSObject *, bool, uint64_t);
++    void (*receive)(OSObject *, const uint8_t *, uint32_t, uint32_t sequence);
++    void (*link)(OSObject *, bool, uint64_t, uint32_t sequence);
+ };
+ struct ItlNativeTx { const uint8_t *bytes; uint32_t length; int result; };
+-#define ITL_NATIVE_BIND "itlmt-native-bind-v2"
+-#define ITL_NATIVE_UNBIND "itlmt-native-unbind-v2"
++#define ITL_NATIVE_BIND "itlmt-native-bind-v3"
++#define ITL_NATIVE_UNBIND "itlmt-native-unbind-v3"
+ #define ITL_NATIVE_TX "itlmt-native-tx-v1"
+ #define ITL_NATIVE_MAC "itlmt-native-mac-v1"
+ 
+@@ -57,8 +57,12 @@ struct ItlNativeJoin {
      uint8_t ssidLen;
      char ssid[33];
      uint8_t pmk[32];
 +    uint8_t bssid[6];
++    uint16_t channelSpec, rsnLength;
++    uint8_t rsn[257];
++    uint32_t sequence; // returned by the backend; immutable identity of this request.
  };
 -#define ITL_NATIVE_JOIN "itlmt-native-join-v1"
-+#define ITL_NATIVE_JOIN "itlmt-native-join-v2"
++#define ITL_NATIVE_JOIN "itlmt-native-join-v3"
  // ITL_NATIVE_LEAVE, p1 unused: leave the network / abort a join in progress.
  #define ITL_NATIVE_LEAVE "itlmt-native-leave-v1"
  
-@@ -87,5 +88,6 @@ struct ItlNativeStatus {
+@@ -87,5 +91,6 @@ struct ItlNativeStatus {
      uint8_t fastActive, fastNss, fastHe, fastBw;
      uint8_t htMcs[10];
      uint16_t vhtMcs, heMcs;
 +    uint32_t beaconCount;
  };
  #define ITL_NATIVE_STATUS "itlmt-native-status-v1"
+diff --git a/src/itl_replay.h b/src/itl_replay.h
+new file mode 100644
+index 0000000..479b9e8
+--- /dev/null
++++ b/src/itl_replay.h
+@@ -0,0 +1,15 @@
++// SPDX-License-Identifier: BSD-3-Clause-Clear
++#pragma once
++#include <stdint.h>
++#include <string.h>
++struct ItlReplayKey {
++    uint64_t pn[17]={};
++    uint32_t epoch=0;
++    bool installed=false;
++    void install(uint64_t rsc) { epoch++; installed=true; for (unsigned i=0;i<17;i++) pn[i]=rsc; }
++    void clear() { epoch++; installed=false; memset(pn,0,sizeof(pn)); }
++    bool accept(uint64_t value,uint8_t tid,uint32_t generation) {
++        if (!installed || tid>16 || generation!=epoch || !value || value>0xffffffffffffULL || value<=pn[tid]) return false;
++        pn[tid]=value; return true;
++    }
++};
+diff --git a/src/itl_rsn.cpp b/src/itl_rsn.cpp
+new file mode 100644
+index 0000000..1ef32f6
+--- /dev/null
++++ b/src/itl_rsn.cpp
+@@ -0,0 +1,168 @@
++// SPDX-License-Identifier: BSD-3-Clause-Clear
++#include "itl_rsn.h"
++#include <string.h>
++
++namespace {
++void wipe(void *memory,size_t length) {
++    volatile uint8_t *p=(volatile uint8_t *)memory;
++    while (length--) *p++=0;
++}
++uint16_t le16(const uint8_t *p) { return (uint16_t)(p[0]|p[1]<<8); }
++uint64_t rscValue(const uint8_t *p) {
++    uint64_t v=0; for (unsigned i=0;i<6;i++) v|=(uint64_t)p[i]<<(8*i); return v;
++}
++bool suite(const uint8_t *p, uint8_t type) { return p[0]==0 && p[1]==15 && p[2]==172 && p[3]==type; }
++bool supported(const uint8_t *ie, size_t length) {
++    if (!ie || length<20 || length>257 || ie[0]!=48 || ie[1]+2u!=length || le16(ie+2)!=1 || !suite(ie+4,4)) return false;
++    size_t off=8; bool ccmp=false, psk=false;
++    for (unsigned set=0;set<2;set++) {
++        if (off+2>length) return false;
++        unsigned count=le16(ie+off); off+=2;
++        if (!count || count>(length-off)/4) return false;
++        for (unsigned i=0;i<count;i++,off+=4) {
++            if (set==0 && suite(ie+off,4)) ccmp=true;
++            if (set==1 && suite(ie+off,2)) psk=true;
++        }
++    }
++    if (off==length) return ccmp && psk;
++    if (off+2>length || (le16(ie+off)&(1u<<6))) return false; // PMF required is unsupported.
++    off+=2;
++    if (off<length) {
++        if (off+2>length) return false;
++        unsigned count=le16(ie+off); off+=2;
++        if (count>(length-off)/16) return false;
++        off+=16*count;
++        if (off<length) { if (length-off!=4) return false; off+=4; }
++    }
++    return off==length && ccmp && psk;
++}
++}
++
++bool itl_rsn_select(const uint8_t *ap,size_t n,const uint8_t *request,size_t rn,ItlRsnSecurity *out) {
++    if (!out) return false;
++    memset(out,0,sizeof(*out));
++    if (!supported(ap,n) || (rn && !supported(request,rn))) return false;
++    static const uint8_t station[]={48,20,1,0,0,15,172,4,1,0,0,15,172,4,1,0,0,15,172,2,0,0};
++    out->apLength=(uint16_t)n; memcpy(out->ap,ap,n);
++    out->stationLength=sizeof(station); memcpy(out->station,station,sizeof(station));
++    return true;
++}
++
++void ItlRsnSession::reset() {
++    // clear() owns hardware rollback; callers invoke it before resetting a live session.
++    wipe(pmk,sizeof(pmk)); wipe(&candidate,sizeof(candidate)); wipe(&active,sizeof(active));
++    wipe(gtk,sizeof(gtk)); memset(gtkInstalled,0,sizeof(gtkInstalled));
++    wipe(snonce,sizeof(snonce)); wipe(anonce,sizeof(anonce)); wipe(activeAnonce,sizeof(activeAnonce));
++    memset(pendingReplay,0,8); memset(acceptedReplay,0,8);
++    accepted=installed=pending=false; phase=Idle; failure="";
++}
++void ItlRsnSession::start(const ItlRsnOps &o,const ItlRsnSecurity &s,const uint8_t p[32],
++                          const uint8_t ap[6],const uint8_t station[6],uint32_t now) {
++    reset(); ops=o; security=s; memcpy(pmk,p,32); memcpy(aa,ap,6); memcpy(spa,station,6);
++    m1Count=m2Count=m3Count=groupCount=rejects=0; phase=AwaitM1; phaseStart=now; lastM2=now;
++}
++void ItlRsnSession::fail(const char *why) {
++    failure=why; phase=Failed; installed=false;
++    if (ops.clear) ops.clear(ops.context);
++    wipe(&candidate,sizeof(candidate)); wipe(&active,sizeof(active));
++    wipe(pmk,sizeof(pmk)); wipe(gtk,sizeof(gtk)); memset(gtkInstalled,0,sizeof(gtkInstalled));
++}
++bool ItlRsnSession::cancelled() {
++    if (ops.cancelled && ops.cancelled(ops.context)) { fail("session cancelled or AP disconnected"); return true; }
++    return false;
++}
++bool ItlRsnSession::sendM2(uint32_t now) {
++    uint8_t out[99+ITL_RSN_IE_MAX];
++    size_t n=itl_eapol_build(out,0x010a,0,pendingReplay,snonce,security.station,security.stationLength);
++    itl_eapol_mic(candidate.kck,out,n); m2Count++; lastM2=now;
++    return ops.send && ops.send(ops.context,out,n,false,false);
++}
++bool ItlRsnSession::sendReply(uint16_t info,const uint8_t replay[8],const uint8_t kck[16],bool protect) {
++    uint8_t out[99],zero[32]={}; size_t n=itl_eapol_build(out,info,0,replay,zero,nullptr,0);
++    itl_eapol_mic(kck,out,n);
++    return ops.send && ops.send(ops.context,out,n,protect,true);
++}
++bool ItlRsnSession::decodeData(const itl_eapol_key &k,const itl_ptk &ptk,bool pairwise,uint8_t key[16],uint8_t *id) {
++    if (!(k.info&ITL_KI_ENCRYPTED) || k.datalen<24 || k.datalen>ITL_RSN_FRAME_MAX-99 || k.datalen%8) return false;
++    uint8_t plain[ITL_RSN_FRAME_MAX];
++    if (itl_aes128_unwrap(ptk.kek,k.data,k.datalen,plain)) { wipe(plain,sizeof(plain)); return false; }
++    size_t size=k.datalen-8,off=0; bool rsn=false,found=false,valid=true;
++    while (off<size) {
++        // IEEE AES-wrap padding: 0xdd followed by zeroes, or a zero tail.
++        if ((plain[off]==221 && (off+1==size || plain[off+1]==0)) || plain[off]==0) {
++            size_t first=plain[off]==221?off+1:off;
++            for (size_t i=first;i<size;i++) if (plain[i]) valid=false;
++            break;
++        }
++        if (size-off<2 || plain[off+1]+2u>size-off) { valid=false; break; }
++        const uint8_t *e=plain+off; size_t n=e[1]+2u;
++        if (e[0]==48) {
++            if (rsn || n!=security.apLength || memcmp(e,security.ap,n)) { valid=false; break; }
++            rsn=true;
++        } else if (e[0]==221 && e[1]>=4 && suite(e+2,1)) {
++            if (found || e[1]!=22 || e[7]!=0 || (e[6]&0xf8)) { valid=false; break; }
++            *id=e[6]&3; memcpy(key,e+8,16); found=true;
++        }
++        off+=n;
++    }
++    wipe(plain,sizeof(plain)); return valid && found && (!pairwise || rsn);
++}
++
++bool ItlRsnSession::receive(const uint8_t *frame,size_t length,uint32_t now) {
++    if (phase==Idle || phase==Failed || cancelled()) return false;
++    itl_eapol_key k={};
++    if (length>ITL_RSN_FRAME_MAX || itl_eapol_parse(frame,length,&k) || frame[4]!=2 ||
++        (k.info&ITL_KI_VER_MASK)!=2 || !(k.info&ITL_KI_ACK) ||
++        (k.info&(ITL_KI_ERROR|ITL_KI_REQUEST|0xe030))) { rejects++; return false; }
++    bool pairwise=(k.info&ITL_KI_PAIRWISE)!=0;
++    if (pairwise && !(k.info&ITL_KI_MIC) && !(k.info&ITL_KI_INSTALL)) {
++        if (k.keylen!=16 || (k.info&(ITL_KI_SECURE|ITL_KI_ENCRYPTED)) || (accepted && memcmp(k.replay,acceptedReplay,8)<=0) ||
++            (pending && memcmp(k.replay,pendingReplay,8)<0) ||
++            (pending && !memcmp(k.replay,pendingReplay,8) && memcmp(k.nonce,anonce,32))) { rejects++; return false; }
++        bool changed=!pending || memcmp(anonce,k.nonce,32);
++        if (changed) {
++            if (!ops.random) { fail("no nonce source"); return false; }
++            ops.random(ops.context,snonce,32); memcpy(anonce,k.nonce,32);
++            itl_wpa_ptk(pmk,aa,spa,anonce,snonce,&candidate);
++        }
++        if (!pending) phaseStart=now;
++        pending=true; phase=AwaitM3; memcpy(pendingReplay,k.replay,8); m1Count++;
++        sendM2(now); return true; // enqueue pressure is retried by tick().
++    }
++    const itl_ptk *ptk=pairwise && pending?&candidate:&active;
++    if (!(k.info&ITL_KI_MIC) || !(k.info&ITL_KI_SECURE) || k.keylen!=16 ||
++        (pairwise && !(k.info&ITL_KI_INSTALL)) || (!pairwise && (!installed || pending || (k.info&ITL_KI_INSTALL))) ||
++        (pairwise && !pending && !installed) ||
++        (accepted && memcmp(k.replay,acceptedReplay,8)<0) ||
++        (pairwise && pending && memcmp(k.replay,pendingReplay,8)<=0) ||
++        (pairwise && memcmp(k.nonce,pending?anonce:activeAnonce,32)) ||
++        !itl_eapol_mic_ok(ptk->kck,frame,4u+((uint32_t)frame[2]<<8)+frame[3])) { rejects++; return false; }
++    uint8_t key[16]={},id=0;
++    if (!decodeData(k,*ptk,pairwise,key,&id)) { rejects++; wipe(key,16); return false; }
++    bool sameReplay=accepted && !memcmp(k.replay,acceptedReplay,8);
++    bool newPtk=pairwise && (!installed || memcmp(ptk->tk,active.tk,16));
++    bool newGtk=!gtkInstalled[id] || memcmp(key,gtk[id],16);
++    if (sameReplay && (lastPairwise!=pairwise || newPtk || newGtk)) { rejects++; wipe(key,16); return false; }
++    // M4 is transmitted before initial PTK installation; retransmits reuse installed keys.
++    if (pairwise && (!sendReply(0x030a,k.replay,ptk->kck,false) || cancelled())) {
++        if (phase!=Failed) fail("M4 transmission failed"); wipe(key,16); return false;
++    }
++    if (cancelled()) { wipe(key,16); return false; }
++    if ((newPtk && (!ops.install || !ops.install(ops.context,true,0,ptk->tk,0))) || cancelled() ||
++        (newGtk && (!ops.install || !ops.install(ops.context,false,id,key,rscValue(k.rsc)))) || cancelled()) {
++        if (phase!=Failed) fail("key transaction failed"); wipe(key,16); return false;
++    }
++    if (!pairwise && (!sendReply(0x0302,k.replay,ptk->kck,true) || cancelled())) {
++        if (phase!=Failed) fail("group reply transmission failed"); wipe(key,16); return false;
++    }
++    if (pairwise) {
++        active=*ptk; memcpy(activeAnonce,k.nonce,32); pending=false; installed=true; phase=Established; m3Count++;
++    } else groupCount++;
++    memcpy(gtk[id],key,16); gtkInstalled[id]=true; wipe(key,16);
++    memcpy(acceptedReplay,k.replay,8); accepted=true; lastPairwise=pairwise; return true;
++}
++void ItlRsnSession::tick(uint32_t now) {
++    if (phase==Idle || phase==Failed || cancelled()) return;
++    if ((phase==AwaitM1 || phase==AwaitM3) && (uint32_t)(now-phaseStart)>=6000) { fail("EAPOL deadline expired"); return; }
++    if (phase==AwaitM3 && (uint32_t)(now-lastM2)>=1500) sendM2(now);
++}
+diff --git a/src/itl_rsn.h b/src/itl_rsn.h
+new file mode 100644
+index 0000000..2030985
+--- /dev/null
++++ b/src/itl_rsn.h
+@@ -0,0 +1,55 @@
++// SPDX-License-Identifier: BSD-3-Clause-Clear
++// Kernel-independent WPA2-PSK/CCMP station session. Hardware effects are explicit
++// callbacks; a failed transaction closes the port and removes installed keys.
++#pragma once
++#include "itl_wpa.h"
++#include <stdint.h>
++#include <stddef.h>
++
++enum { ITL_RSN_FRAME_MAX = 1536, ITL_RSN_IE_MAX = 257 };
++struct ItlRsnSecurity {
++    uint16_t apLength, stationLength;
++    uint8_t ap[ITL_RSN_IE_MAX], station[ITL_RSN_IE_MAX];
++};
++bool itl_rsn_select(const uint8_t *ap, size_t apLength,
++                    const uint8_t *requested, size_t requestedLength,
++                    ItlRsnSecurity *selected);
++struct ItlRsnOps {
++    void *context;
++    bool (*send)(void *, const uint8_t *, size_t, bool protect, bool confirm);
++    bool (*install)(void *, bool pairwise, uint8_t keyId, const uint8_t key[16], uint64_t rsc);
++    void (*clear)(void *);
++    bool (*cancelled)(void *);
++    void (*random)(void *, uint8_t *, size_t);
++};
++class ItlRsnSession {
++public:
++    enum State { Idle, AwaitM1, AwaitM3, Established, Failed };
++    void start(const ItlRsnOps &, const ItlRsnSecurity &, const uint8_t pmk[32],
++               const uint8_t ap[6], const uint8_t station[6], uint32_t now);
++    bool receive(const uint8_t *, size_t, uint32_t now);
++    void tick(uint32_t now);
++    void reset();
++    State state() const { return phase; }
++    bool authorized() const { return installed && phase != Failed && phase != Idle; }
++    const char *error() const { return failure; }
++    uint32_t m1Count=0, m2Count=0, m3Count=0, groupCount=0, rejects=0;
++private:
++    State phase=Idle;
++    ItlRsnOps ops={};
++    ItlRsnSecurity security={};
++    uint8_t pmk[32]={}, aa[6]={}, spa[6]={}, snonce[32]={}, anonce[32]={}, activeAnonce[32]={};
++    uint8_t pendingReplay[8]={}, acceptedReplay[8]={};
++    bool accepted=false, installed=false, pending=false, lastPairwise=false;
++    itl_ptk candidate={}, active={};
++    uint8_t gtk[4][16]={};
++    bool gtkInstalled[4]={};
++    uint32_t phaseStart=0, lastM2=0;
++    const char *failure="";
++    void fail(const char *);
++    bool cancelled();
++    bool sendM2(uint32_t);
++    bool sendReply(uint16_t info, const uint8_t replay[8], const uint8_t kck[16], bool protect);
++    bool decodeData(const itl_eapol_key &, const itl_ptk &, bool pairwise,
++                    uint8_t key[16], uint8_t *keyId);
++};
+diff --git a/src/itl_wpa.cpp b/src/itl_wpa.cpp
+index 45d3eb9..63c2d8a 100644
+--- a/src/itl_wpa.cpp
++++ b/src/itl_wpa.cpp
+@@ -211,7 +211,7 @@ static void aes_dec_block(const aes128 *k, const uint8_t in[16], uint8_t out[16]
+ 
+ int itl_aes128_unwrap(const uint8_t kek[16], const uint8_t *in, size_t inlen, uint8_t *out)
+ {
+-    if (inlen < 24 || inlen % 8 || inlen > 8 + 8 * 64) return -1;
++    if (inlen < 24 || inlen % 8 || inlen > 1536) return -1;
+     size_t n = inlen / 8 - 1;
+     aes128 k; aes_expand(&k, kek);
+     uint8_t a[8]; memcpy(a, in, 8);
+@@ -283,7 +283,7 @@ void itl_eapol_mic(const uint8_t kck[16], uint8_t *frame, size_t len)
+ 
+ bool itl_eapol_mic_ok(const uint8_t kck[16], const uint8_t *frame, size_t len)
+ {
+-    uint8_t tmp[512], h[20];
++    uint8_t tmp[1536], h[20];
+     if (len > sizeof(tmp) || len < 99) return false;
+     memcpy(tmp, frame, len);
+     memset(tmp + 81, 0, 16);
 diff --git a/src/itlmt7922.cpp b/src/itlmt7922.cpp
-index 8f49d91..fd35a58 100644
+index 8f49d91..7ddc107 100644
 --- a/src/itlmt7922.cpp
 +++ b/src/itlmt7922.cpp
 @@ -62,12 +62,12 @@ void itlmt7922::note(const char *fmt, uint32_t a, uint32_t b, uint32_t c)
@@ -525,7 +1007,7 @@ index 8f49d91..fd35a58 100644
          for (uint32_t t = 0; t < hold && !shouldStop(); t += 3) {
              IOLog("itlmt7922: [t=%us] %s\n", t, logbuf);
              IOSleep(3000);
-@@ -161,19 +161,15 @@ void itlmt7922::holdLog()
+@@ -161,19 +161,16 @@ void itlmt7922::holdLog()
  bool itlmt7922::start(IOService *provider)
  {
      if (!super::start(provider)) return false;
@@ -537,17 +1019,19 @@ index 8f49d91..fd35a58 100644
      txLock = IOLockAlloc();
      cmdLock = IOLockAlloc();
      nativeLock = IOLockAlloc();
-     if (!workerLock || !txLock || !cmdLock || !nativeLock) return false;
+-    if (!workerLock || !txLock || !cmdLock || !nativeLock) return false;
 -    uint32_t nativeDP = 0;
 -    nativeMode = PE_parse_boot_argn("mt7922_native_dp", &nativeDP, sizeof(nativeDP)) && nativeDP;
 -    setProperty("port-version","0.2.2-full-experimental");
 -    setProperty("wifi-state", "off");                         // until stage 3 establishes a link
-+    setProperty("port-version","0.2.2-mt7902-native");
++    snapshotLock = IOLockAlloc();
++    if (!workerLock || !txLock || !cmdLock || !nativeLock || !snapshotLock) return false;
++    setProperty("port-version","0.3.0-mt7902-native");
 +    setProperty("wifi-state", "initializing");
  
      pci = OSDynamicCast(IOPCIDevice, provider);
      if (!pci) { IOLog("itlmt7922: provider is not IOPCIDevice\n"); return false; }
-@@ -184,9 +180,7 @@ bool itlmt7922::start(IOService *provider)
+@@ -184,9 +181,7 @@ bool itlmt7922::start(IOService *provider)
      uint16_t did = pci->configRead16(kIOPCIConfigDeviceID);
      uint16_t cmd = pci->configRead16(kIOPCIConfigCommand);
      note("start %04x:%04x cmd=%04x",vid,did,cmd);
@@ -558,7 +1042,7 @@ index 8f49d91..fd35a58 100644
  
      pci->setMemoryEnable(true);
      pci->setBusMasterEnable(false);   // M0 does no DMA
-@@ -208,28 +202,19 @@ bool itlmt7922::start(IOService *provider)
+@@ -208,28 +203,19 @@ bool itlmt7922::start(IOService *provider)
      note("own OK");
      chip=rdA(MT_HW_CHIPID);
      dumpState();
@@ -597,7 +1081,23 @@ index 8f49d91..fd35a58 100644
      }
      return true;
  
-@@ -289,7 +274,7 @@ bool itlmt7922::quiesceHardware()
+@@ -270,12 +256,15 @@ void itlmt7922::free()
+     if (txLock) { IOLockFree(txLock); txLock=nullptr; }
+     if (cmdLock) { IOLockFree(cmdLock); cmdLock=nullptr; }
+     if (nativeLock) { IOLockFree(nativeLock); nativeLock=nullptr; }
++    if (snapshotLock) { IOLockFree(snapshotLock); snapshotLock=nullptr; }
+     super::free();
+ }
+ 
+ bool itlmt7922::quiesceHardware()
+ {
+     m3linkUp=false; m3dataOn=false; m3wantEapol=false;
++    associationReady=false; rsnHardwareActive=false; rsn.reset();
++    for (auto &key:rxKeys) key.clear();
+     if (txLock) IOLockLock(txLock);
+     bool stopped=true;
+     if (busMasterOn && pci && regs) {
+@@ -289,7 +278,7 @@ bool itlmt7922::quiesceHardware()
      }
      if (stopped) {
          txPool=false;
@@ -607,10 +1107,27 @@ index 8f49d91..fd35a58 100644
      }
      if (txLock) IOLockUnlock(txLock);
 diff --git a/src/itlmt7922.hpp b/src/itlmt7922.hpp
-index c7ad163..b1164bc 100644
+index c7ad163..07d7982 100644
 --- a/src/itlmt7922.hpp
 +++ b/src/itlmt7922.hpp
-@@ -76,9 +76,8 @@ private:
+@@ -14,6 +14,8 @@
+ #include "itl_caps.h"
+ #include "itl_ba.h"
+ #include "itl_native_bridge.h"
++#include "itl_rsn.h"
++#include "itl_replay.h"
+ 
+ class itlmt7922Eth;
+ class IOUserClient;
+@@ -27,6 +29,7 @@ struct M3TxOpt {
+     int sn = -1;              // >= 0: sequence number chosen by the host (TXD3.SN_VALID)
+     bool aggr = false;        // leave BA_DISABLE clear: the frame may be sent in an A-MPDU
+     bool *full = nullptr;     // set: no staging slot / descriptor free, the caller keeps the frame (Ethernet output queue)
++    uint16_t *token = nullptr;
+ };
+ 
+ struct itl_dma_buf {
+@@ -76,10 +79,13 @@ private:
      bool quiesceHardware();
      bool stopping = false, workerRunning = false, firmwareFault = false;
      IOLock *workerLock = nullptr;
@@ -619,9 +1136,14 @@ index c7ad163..b1164bc 100644
 -    bool nativeMode = false;
 +    static constexpr bool nativeMode = true;
      IOLock *nativeLock = nullptr;
++    IOLock *snapshotLock = nullptr;
++    ItlNativeStatus statusSnapshot = {};
++    ItlNativeAp apSnapshots[ITL_NATIVE_AP_MAX] = {};
++    uint32_t snapshotCount=0, snapshotScanGen=0;
      ItlNativeSink nativeSink = {};
      IOPCIDevice *pci = nullptr;
-@@ -113,9 +112,8 @@ private:
+     IOMemoryMap *bar0 = nullptr;
+@@ -113,9 +119,8 @@ private:
      int  m1Run();
      void m1Main();
      static void m1Thread(void *arg);
@@ -632,7 +1154,22 @@ index c7ad163..b1164bc 100644
      int  uniSend(uint8_t cid, const void *payload, size_t plen, bool query, uint8_t *evOut, size_t evMax,
                   uint32_t *evLen, uint32_t timeoutMs);
      void handleRxPacket(const uint8_t *packet, uint32_t length);
-@@ -158,7 +156,6 @@ private:
+@@ -140,7 +145,7 @@ private:
+     bool clcReady = false;
+     void m2Publish();
+     int  m2Run();
+-    int  m2Scan(const char *ssid);
++    int  m2Scan(const char *ssid, size_t ssidLength = (size_t)-1);
+     uint8_t scanSeq = 0;
+     uint32_t scanMs = 0, evLogged = 0;
+     uint8_t chHist[200] = {0};
+@@ -153,17 +158,16 @@ private:
+     uint32_t evCount = 0;
+     // sec: ITL_SEC_* (itlmt7922_uc.cpp); rssi in dBm, 0 = not measured; seenMs = nowMs() of the last beacon / probe response
+     // cap / bcnInt / ie / probe: the frame as heard (native Wi-Fi hands them to the Family as the scan result's beacon message)
+-    struct itl_ap { uint8_t bssid[6]; uint8_t ch; char ssid[33]; int8_t rssi; uint8_t sec; uint32_t seenMs;
++    struct itl_ap { uint8_t bssid[6]; uint8_t ch; char ssid[33]; uint8_t ssidLen; int8_t rssi; uint8_t sec; uint32_t seenMs;
+                     uint8_t probe; uint16_t cap, bcnInt, ieLen; uint8_t ie[ITL_NATIVE_IE_MAX]; } aps[ITL_NATIVE_AP_MAX];
      int nAps = 0;
      uint8_t mcuSeq = 0;
      // M3 (boot-arg itlmt_m3=1, implies M2): associate to the configured network, WPA2-PSK, Ethernet interface
@@ -640,7 +1177,78 @@ index c7ad163..b1164bc 100644
      itl_ring txData;                         // band0 data TX ring (mgmt + data frames)
      void m3log(const char *fmt, ...);
      void m3Publish(const char *stage);
-@@ -259,7 +256,7 @@ private:
+     int  m3Run();
+-    void m3Capture(const uint8_t *frame, uint32_t len, const char *ssid, uint8_t ch);
++    void m3Capture(const uint8_t *frame, uint32_t len, const char *ssid, uint8_t ch, uint8_t ssidLength);
+     int  m3Cmd(uint8_t cid, const void *payload, size_t plen, const char *name);
+     int  m3HwPrep();
+     void ctlPoll();                          // link loop: take run-time control requests (setProperties)
+@@ -182,11 +186,38 @@ private:
+     void m3ParseAp();
+     volatile bool rocGrant = false;
+     uint8_t rocTok = 0, rocStatus = 0xff;
++    uint32_t rocDeadline=0;
++    bool rocOn=false;
+     uint8_t m3cipher = 0;                    // 0 = open, 4 = CCMP (BSS_INFO sec TLV)
+     uint8_t apSupp = 0, apBasic = 0;         // OFDM rate bitmaps (6,9,12,18,24,36,48,54 -> bit 0..7)
+     uint8_t apCck = 0, apBasicCck = 0;       // 2.4 GHz CCK rate bitmaps (1,2,5.5,11 -> bit 0..3)
+-    uint8_t apRsn[64] = {0};
+-    uint8_t apRsnLen = 0;
++    uint8_t apRsn[257] = {0};
++    uint16_t apRsnLen = 0;
++    uint8_t m3ssidLength=0;
++    uint32_t activeAttempt=0;
++    uint16_t requestedChannel=0, requestedRsnLength=0;
++    uint8_t requestedRsn[257]={};
++    ItlRsnSecurity rsnSecurity={};
++    ItlRsnSession rsn;
++    bool rsnKeyUpdate=false;
++    ItlReplayKey rxKeys[5];
++    uint64_t currentRxPn=0;
++    uint32_t currentRxEpoch=0;
++    uint8_t currentRxKey=0,currentRxTid=16;
++    bool rxCoalesce=false;
++    bool associationReady=false;
++    bool rsnHardwareActive=false;
++    bool sessionCurrent() const;
++    void publishSnapshot();
++    void buildNativeStatus(ItlNativeStatus *);
++    void buildNativeNets(ItlNativeNets *);
++    static bool rsnSend(void *,const uint8_t *,size_t,bool,bool);
++    static bool rsnInstall(void *,bool,uint8_t,const uint8_t *,uint64_t);
++    static void rsnClear(void *);
++    static bool rsnCancelled(void *);
++    static void rsnRandom(void *,uint8_t *,size_t);
++    void rsnService();
++    bool rxAccept(uint64_t,uint8_t,uint8_t,uint32_t);
+     char m3buf[3000] = {0};
+     size_t m3len = 0;
+     char m3res[400] = {0};
+@@ -209,12 +240,12 @@ private:
+     bool m3wantEapol = false;
+     bool m3hsApLeave = false;
+     uint16_t m3hsApReason = 0;
+-    uint8_t m3eapol[420] = {0};
++    uint8_t m3eapol[ITL_RSN_FRAME_MAX] = {0};
+     uint32_t m3eapolLen = 0;
+     // RX polling may deliver several EAPOL packets before the handshake gets CPU time.
+     // Only the core worker produces/consumes this queue; no network-stack callback accesses it.
+     static const uint32_t kEapolQueue = 8;
+-    struct EapolRx { uint32_t len; uint8_t data[420]; };
++    struct EapolRx { uint32_t len; uint8_t data[ITL_RSN_FRAME_MAX]; };
+     EapolRx m3eapolQueue[kEapolQueue] = {};
+     uint32_t m3eapolHead = 0, m3eapolTail = 0, m3eapolDrops = 0;
+     bool m3EapolNext();
+@@ -229,7 +260,7 @@ private:
+     int  m3Key(uint16_t wcid, bool pairwise, uint8_t keyId, const uint8_t *key, uint8_t keyLen);
+     bool m3RxData(const uint8_t *p, uint32_t len);
+     bool m3TxData(const uint8_t *da, uint16_t ethertype, const uint8_t *payload, uint32_t plen, bool protect,
+-                  bool *full = nullptr);
++                  bool *full = nullptr, uint16_t *token = nullptr);
+     void m3Note(const char *dir, const uint8_t *eth, uint32_t len);
+     // Post-mortem: the last Ethernet frames in either direction and one line of chip / ring / PCIe state, published as the
+     // properties "wifi-frames" and "wifi-postmortem" when the firmware stops answering. chipRecover() redoes M1 + M2.
+@@ -259,7 +290,7 @@ private:
      bool m3Xchg(const uint8_t *frame, uint32_t len, uint8_t subtype, uint8_t wantFc, uint32_t waitMs);
      int  m3Auth();
      int  m3Assoc();
@@ -649,7 +1257,7 @@ index c7ad163..b1164bc 100644
      // its rate control choose MCS for unicast data instead of the fixed 6 Mb/s. Only used when the AP is on 5 GHz and has HT.
      bool m3fast = false;                     // requested by the boot-arg
      bool fastActive = false;                 // requested and the target AP supports it
-@@ -274,7 +271,7 @@ private:
+@@ -274,7 +305,7 @@ private:
      void m3Hex(char *out, size_t outLen, const uint8_t *p, uint32_t n);
  
      // ---- Block Ack, TX buffer tracking and the fallback ladder (itlmt7922_ba.cpp) ----
@@ -658,16 +1266,27 @@ index c7ad163..b1164bc 100644
      // queue, host-assigned sequence numbers and TXFREE-tracked buffers, 4 + A-MSDU-in-A-MPDU negotiation, 5 + 160 MHz channels; HE is disabled.
      // If a level does not work (association or handshake fails, or no unicast frame comes back from the AP after the link is
      // up, or A-MSDUs cannot be unpacked, or the firmware reports nearly every transmission failed) the driver connects again
-@@ -283,7 +280,7 @@ private:
+@@ -283,7 +314,8 @@ private:
      uint8_t lvl = 0;                         // level of the current attempt, 0 = legacy 6 Mb/s
      uint8_t lvlCap = 255;                    // highest level not given up on the current network (reset when the network changes)
      char capSsid[33] = {0};                  // the network lvlCap belongs to: kept across disconnects and failed joins, so that a
 -    uint32_t capMs = 0;                      // retry from the user starts at the level that worked, not at mt7922_fast again (10 min)
++    uint8_t capSsidLength=0;
 +    uint32_t capMs = 0;                      // retry from the user starts at the level that worked, not at mt7902_fast again (10 min)
      uint8_t capBand = 0;                     // band the cap was learned on (1 = 2.4 GHz, 2 = 5 GHz): another band starts over
      bool m3stepDown = false;                 // set when the attempt at `lvl` failed; m3Run() then retries one level lower
      bool m3stepRadio = false;                // ... because of radio conditions (tx failing), not because the AP rejects the level
-@@ -314,7 +311,7 @@ private:
+@@ -306,6 +338,9 @@ private:
+     uint64_t txBusy[kTxSlots / 64] = {0};    // staging slots in flight
+     uint32_t txSlotT[kTxSlots] = {0};
+     uint8_t txGen[kTxSlots] = {0};
++    uint8_t txCompletion[kTxSlots] = {}; // last token completion's firmware status.
++    uint16_t txCompletedToken[kTxSlots] = {};
++    uint32_t rsnLastPublish=0;
+     uint8_t txNext = 0;
+     bool txIsBusy(uint32_t s) const { return (txBusy[s >> 6] >> (s & 63)) & 1; }
+     void txSetBusy(uint32_t s) { txBusy[s >> 6] |= 1ull << (s & 63); }
+@@ -314,7 +349,7 @@ private:
      uint32_t stTxUni = 0, stRxUni = 0, stRxAmsdu = 0, stTxFree = 0, stTxReclaim = 0, stTxNoSlot = 0, stTxFwFail = 0, stTxFwRetry = 0;
      uint32_t stBaReqRx = 0, stBaDecl = 0, stBaRxOn = 0, stBaTxOn = 0, stBaDel = 0, stBaBar = 0;
      uint32_t linkUpMs = 0, lastReorderMs = 0;
@@ -676,7 +1295,7 @@ index c7ad163..b1164bc 100644
      // 100 ms; measured here: 1258 timeouts in 536 s at 100 ms = 23 % of the time with the receive path held, while a hole is
      // either filled by the AP's retry within a few ms or never. 30 ms keeps the retries and cuts the stalls.
      uint32_t reoMs = 30;
-@@ -393,13 +390,14 @@ private:
+@@ -393,13 +428,14 @@ private:
      // target AP, captured from a beacon / probe response during the scan
      bool tgtFound = false;
      uint8_t tgtBssid[6] = {0};
@@ -692,16 +1311,42 @@ index c7ad163..b1164bc 100644
      bool regPending = false;              // native mode: registerService() waits until the firmware MAC is known (publishService)
      void publishService();
      bool driverOwn();
-@@ -414,7 +412,7 @@ private:
+@@ -414,7 +450,8 @@ private:
      // ---- runtime control: command mailbox, supervisor loop, status for the menu bar app (itlmt7922_uc.cpp) ----
      enum { CMD_SCAN = 1, CMD_JOIN = 2, CMD_DISCONNECT = 4 };
      // hasPmk: `pmk` is the ready pairwise master key (native Wi-Fi: userland's supplicant derived it), psk is empty then
 -    struct Net { char ssid[33]; char psk[72]; bool hasPmk; bool native; uint8_t pmk[32]; };
-+    struct Net { char ssid[33]; char psk[72]; bool hasPmk; bool native; uint8_t pmk[32]; uint8_t bssid[6]; };
++    struct Net { char ssid[33]; char psk[72]; bool hasPmk; bool native; uint8_t pmk[32]; uint8_t bssid[6];
++                 uint8_t ssidLen; uint16_t channelSpec,rsnLength; uint8_t rsn[257]; uint32_t sequence; };
      IOLock *cmdLock = nullptr;
      volatile uint32_t cmdBits = 0;
      Net reqNet = {};                         // the network of the last join command (under cmdLock)
-@@ -447,6 +445,7 @@ private:
+@@ -424,13 +461,13 @@ private:
+     Net candNets[4] = {};                    // candidates for the next m3Run1(), in priority order
+     int candN = 0;
+     int loadPlistNets(Net *out, int max);
+-    bool apInRange(const char *ssid, uint32_t maxAgeMs);
++    bool apInRange(const char *ssid, uint32_t maxAgeMs, uint8_t length=0);
+     void m3Supervise();                      // replaces a single m3Run(): connect, reconnect, obey commands
+     void wifiState(const char *st, const char *err);
+     void wifiLink();                         // ssid / channel / rssi / rate of the current link
+     void wifiNets();                         // wifi-networks from aps[]
+     void wifiScan();                         // wildcard scan, then wifiNets()
+-    void apSeen(const uint8_t *p, uint32_t len, uint32_t off, const char *ssid, uint8_t ch);   // beacon / probe response
++    void apSeen(const uint8_t *p, uint32_t len, uint32_t off, const char *ssid, uint8_t ch, uint8_t ssidLength);   // beacon / probe response
+     int8_t rxRssi(const uint8_t *p, uint32_t len, uint32_t hdrOff);
+     char wstate[16] = {0};
+     uint32_t scanGen = 0;
+@@ -438,7 +475,7 @@ private:
+     // native Wi-Fi join bookkeeping, read by ITL_NATIVE_STATUS: njState is ITL_NATIVE_*, njSeq counts joins, njFail a stage code
+     volatile uint32_t njState = 0, njSeq = 0, njFail = 0;
+     IOReturn nativeScanReq(uint32_t *started);
+-    IOReturn nativeJoin(const struct ItlNativeJoin *j);
++    IOReturn nativeJoin(struct ItlNativeJoin *j);
+     void nativeStatus(struct ItlNativeStatus *s);
+     void nativeNets(struct ItlNativeNets *n);
+     volatile bool m3lost = false;            // the AP sent deauthentication / disassociation, or went silent
+@@ -447,6 +484,7 @@ private:
      size_t evlen = 0;
      void evLog(const char *fmt, ...) __attribute__((format(printf, 2, 3)));
      uint32_t tgtLastBcnMs = 0, lastRxDataMs = 0;
@@ -709,10 +1354,55 @@ index c7ad163..b1164bc 100644
      int8_t tgtRssi = 0;
      void ethLink(bool up);
  };
+diff --git a/src/itlmt7922_ba.cpp b/src/itlmt7922_ba.cpp
+index 601988b..4a236e5 100644
+--- a/src/itlmt7922_ba.cpp
++++ b/src/itlmt7922_ba.cpp
+@@ -94,7 +94,12 @@ void itlmt7922::ethDeliverCb(void *ctx, const uint8_t *frame, uint32_t len)
+ // The reorder buffer hands over bundles: the Ethernet frames of one MPDU, each with a 2-byte length (itl_bundle_add).
+ void itlmt7922::baDeliverCb(void *ctx, const uint8_t *blob, uint32_t len)
+ {
+-    itl_bundle_each(blob, len, ethDeliverCb, ctx);
++    auto *d=(itlmt7922 *)ctx;
++    if (!blob || len<16) return;
++    uint64_t pn=0; uint32_t epoch=0;
++    memcpy(&pn,blob,8); memcpy(&epoch,blob+12,4);
++    if (!d->rxAccept(pn,blob[8],blob[9],epoch)) return;
++    itl_bundle_each(blob+16,len-16,ethDeliverCb,ctx);
+ }
+ 
+ void itlmt7922::baReset()
+@@ -360,7 +365,7 @@ void itlmt7922::m3TxFree(const uint8_t *p, uint32_t len)
+             const uint32_t id = record.token;
+             const uint32_t s = id & (kTxSlots - 1);
+             if (txIsBusy(s) && txGen[s] == (id >> 8)) {
+-                txClrBusy(s);
++                txClrBusy(s); txCompletion[s]=record.status; txCompletedToken[s]=(uint16_t)id;
+                 stTxFree++;
+                 txFreeSeen = true;
+                 stTxFwRetry += record.attempts ? record.attempts - 1 : 0;
 diff --git a/src/itlmt7922_eth.cpp b/src/itlmt7922_eth.cpp
-index 113ea39..1ff0380 100644
+index 113ea39..6b0b8e8 100644
 --- a/src/itlmt7922_eth.cpp
 +++ b/src/itlmt7922_eth.cpp
+@@ -223,7 +223,7 @@ void itlmt7922::ethRx(const uint8_t *frame, uint32_t len)
+ {
+     if (nativeMode && nativeLock) {
+         IOLockLock(nativeLock);
+-        if (nativeSink.owner && nativeSink.receive) nativeSink.receive(nativeSink.owner, frame, len);
++        if (nativeSink.owner && nativeSink.receive) nativeSink.receive(nativeSink.owner, frame, len, activeAttempt);
+         IOLockUnlock(nativeLock);
+         return;
+     }
+@@ -241,7 +241,7 @@ void itlmt7922::ethLink(bool up)
+         // Family link updates can sleep on the native gate. Never hold bridge
+         // lock while entering it: gated stop/unbind acquires that lock.
+         if (sink.owner) {
+-            sink.link(sink.owner, up, up ? linkSpeedBps() : 0);
++            sink.link(sink.owner, up, up ? linkSpeedBps() : 0, activeAttempt);
+             sink.owner->release(); sink.lifetime->release();
+         }
+         return;
 @@ -266,6 +266,7 @@ IOReturn itlmt7922::callPlatformFunction(const OSSymbol *name, bool wait, void *
      if (!name) return kIOReturnBadArgument;
      if (name->isEqualTo(ITL_NATIVE_MAC)) {
@@ -721,6 +1411,30 @@ index 113ea39..1ff0380 100644
          memcpy(p1, mac, 6);
          return kIOReturnSuccess;
      }
+@@ -296,7 +297,7 @@ IOReturn itlmt7922::callPlatformFunction(const OSSymbol *name, bool wait, void *
+     }
+     if (name->isEqualTo(ITL_NATIVE_JOIN)) {
+         if (!nativeMode) return kIOReturnNotReady;
+-        return nativeJoin((const ItlNativeJoin *)p1);
++        return nativeJoin((ItlNativeJoin *)p1);
+     }
+     if (name->isEqualTo(ITL_NATIVE_LEAVE)) {
+         if (!nativeMode) return kIOReturnNotReady;
+@@ -307,12 +308,12 @@ IOReturn itlmt7922::callPlatformFunction(const OSSymbol *name, bool wait, void *
+     if (name->isEqualTo(ITL_NATIVE_BIND)) {
+         ItlNativeSink *sink = (ItlNativeSink *)p1;
+         if (!nativeMode || !nativeLock) return kIOReturnNotReady;
+-        if (!sink || sink->version != 2 || !sink->lifetime || !sink->owner || !sink->receive || !sink->link)
++        if (!sink || sink->version != 3 || !sink->lifetime || !sink->owner || !sink->receive || !sink->link)
+             return kIOReturnBadArgument;
+         IOLockLock(nativeLock);
+         if (nativeSink.owner) { IOLockUnlock(nativeLock); return kIOReturnBusy; }
+         nativeSink = *sink;
+-        nativeSink.link(nativeSink.owner, m3linkUp, m3linkUp ? linkSpeedBps() : 0);
++        nativeSink.link(nativeSink.owner, m3linkUp, m3linkUp ? linkSpeedBps() : 0, activeAttempt);
+         // RX callbacks remain under nativeLock. Link snapshots retain owner/controller and gated actions recheck bound.
+         IOLockUnlock(nativeLock);
+         IOLog("itlmt7922 native: sink bound\n");
 diff --git a/src/itlmt7922_m1.cpp b/src/itlmt7922_m1.cpp
 index 4ebad09..4206243 100644
 --- a/src/itlmt7922_m1.cpp
@@ -911,10 +1625,29 @@ index 4ebad09..4206243 100644
      publishService();
  }
 diff --git a/src/itlmt7922_m2.cpp b/src/itlmt7922_m2.cpp
-index 4ddef55..bb76e42 100644
+index 4ddef55..118135d 100644
 --- a/src/itlmt7922_m2.cpp
 +++ b/src/itlmt7922_m2.cpp
-@@ -22,7 +22,7 @@ bool itlmt7922::ringPeek(itl_ring &r,const uint8_t **data,uint32_t *length,int *
+@@ -2,6 +2,7 @@
+ // Copyright (c) 2026 thanhnndev and contributors; MediaTek Inc. protocol references.
+ // Connac2 scan/capability/receive port; 36-byte events and packed CE scan.
+ #include "itlmt7922.hpp"
++#include "itl_channels.h"
+ #include "mt7922_regs.h"
+ #include "../codec/mt7922_rx_codec.h"
+ #include <string.h>
+@@ -13,8 +14,8 @@ static inline void put16(uint8_t *p,uint16_t v) { memcpy(p,&v,2); }
+ static inline void put32(uint8_t *p,uint32_t v) { memcpy(p,&v,4); }
+ static inline void barrier() { __sync_synchronize(); }
+ static const uint32_t kCe=1u<<18,kUni=1u<<17,kQuery=1u<<16;
+-static const uint8_t chans[][2]={{1,1},{1,2},{1,3},{1,4},{1,5},{1,6},{1,7},{1,8},{1,9},{1,10},{1,11},{1,12},{1,13},
+- {2,36},{2,40},{2,44},{2,48},{2,149},{2,153},{2,157},{2,161},{2,165}};
++static const uint8_t channels[]={ITL_CHANNELS};
++static const unsigned channelCount=sizeof(channels);
+ 
+ bool itlmt7922::ringPeek(itl_ring &r,const uint8_t **data,uint32_t *length,int *index)
+ {
+@@ -22,7 +23,7 @@ bool itlmt7922::ringPeek(itl_ring &r,const uint8_t **data,uint32_t *length,int *
      const uint32_t ctrl=le32(r.desc.va+r.tail*16+4);
      if (!(ctrl & MT_DMA_CTL_DMA_DONE)) return false;
      barrier();
@@ -923,7 +1656,7 @@ index 4ddef55..bb76e42 100644
      int bi=r.slotBuf[r.tail];
      if (bi<0 || bi>=r.n) {
          // An invalid mapping cannot safely be consumed/refilled. This counts
-@@ -60,7 +60,7 @@ void itlmt7922::m2State(const char *tag)
+@@ -60,7 +61,7 @@ void itlmt7922::m2State(const char *tag)
  {
      m2log("%s LP=%08x MISC=%08x GLO=%08x RX0=%u RX4=%u RXdata=%u",tag,
            rdA(MT_CONN_ON_LPCTL),rdA(MT_CONN_ON_MISC),rdA(MT_WFDMA0_GLO_CFG),
@@ -932,7 +1665,7 @@ index 4ddef55..bb76e42 100644
            rxData.n?rd(rxData.regs+Q_DMA_IDX):0);
  }
  int itlmt7922::uniSend(uint8_t cid,const void *payload,size_t plen,bool query,
-@@ -106,17 +106,18 @@ void itlmt7922::rxDataPoll()
+@@ -106,17 +107,18 @@ void itlmt7922::rxDataPoll()
          }
          rxDmaLastPollMs=now;
      } else rxDmaLastPollMs=0;
@@ -956,7 +1689,61 @@ index 4ddef55..bb76e42 100644
          if (consumed==128 && r.n && r.desc.va && r.tail!=r.head &&
              (le32(r.desc.va+r.tail*16+4)&MT_DMA_CTL_DMA_DONE)) rxDmaBudget[q]++;
      }
-@@ -209,10 +210,8 @@ int itlmt7922::m2Run()
+@@ -137,12 +139,13 @@ void itlmt7922::rxParseFrame(const uint8_t *p,uint32_t length)
+     if (mt7922_parse_rx_normal(p,length,&view)!=MT7922_RX_OK) { rxOther++; return; }
+     const uint8_t *f=p+view.frame_offset;
+     const uint32_t n=view.frame_length;
+-    if ((m3linkUp || m3wantEapol) && n>=26 &&
++    if ((m3linkUp || m3wantEapol || m3wantFc) && n>=26 &&
+         ((f[0]&0xfc)==0xc0 || (f[0]&0xfc)==0xa0) &&
+         !memcmp(f+10,tgtBssid,6) && !memcmp(f+16,tgtBssid,6) &&
+         (!memcmp(f+4,mac,6) || (f[4]&1))) {
+         uint16_t reason=le16(f+24);
+-        if (m3wantEapol) { m3hsApLeave=true; m3hsApReason=reason; }
++        setProperty("wifi-ap-disconnect",reason,32);
++        if (m3wantEapol || m3wantFc) { m3hsApLeave=true; m3hsApReason=reason; }
+         else { m3lost=true; snprintf(m3lostWhy,sizeof(m3lostWhy),"AP disconnect reason %u",reason); }
+         return;
+     }
+@@ -152,29 +155,29 @@ void itlmt7922::rxParseFrame(const uint8_t *p,uint32_t length)
+     const uint8_t channel=beacon.channel?beacon.channel:view.channel;
+     rxBeacons++;
+     if (channel<sizeof(chHist) && chHist[channel]!=255) chHist[channel]++;
+-    m3Capture(f,n,ssid,channel);
+-    apSeen(p,view.packet_length,view.frame_offset,ssid,channel);
++    m3Capture(f,n,ssid,channel,beacon.ssid_length);
++    apSeen(p,view.packet_length,view.frame_offset,ssid,channel,beacon.ssid_length);
+ }
+-int itlmt7922::m2Scan(const char *ssid)
++int itlmt7922::m2Scan(const char *ssid,size_t ssidLength)
+ {
+     if (shouldStop() || firmwareFault) return -5;
+-    const size_t sl=ssid?strnlen(ssid,33):0;
++    const size_t sl=ssid?(ssidLength==(size_t)-1?strnlen(ssid,33):ssidLength):0;
+     if (sl>32) return -22;
+     uint8_t scan[1186]={};
+     scanSeq=(uint8_t)((scanSeq+1)&0x7f); if (!scanSeq) scanSeq=1;
+     scan[0]=scanSeq; scan[2]=sl?1:0; scan[3]=sl?4:1;
+     scan[4]=sl?1:0; scan[5]=sl?2:0; scan[6]=1u<<5; scan[7]=1;
+     if (sl) { put32(scan+8,(uint32_t)sl); memcpy(scan+12,ssid,sl); scan[1185]=1; }
+-    put16(scan+154,120); put16(scan+156,120*(uint16_t)(sizeof(chans)/2));
+-    scan[158]=4; scan[159]=(uint8_t)(sizeof(chans)/2);
+-    memcpy(scan+160,chans,sizeof(chans)); put16(scan+828,60); memset(scan+1110,255,6);
++    put16(scan+154,120); put16(scan+156,120*(uint16_t)channelCount);
++    scan[158]=4; scan[159]=(uint8_t)channelCount;
++    for (unsigned i=0;i<channelCount;i++) { scan[160+2*i]=channels[i]>14?2:1; scan[161+2*i]=channels[i]; } put16(scan+828,60); memset(scan+1110,255,6);
+     scanDone=false; bzero(chHist,sizeof(chHist));
+     int rc=mcuSend(kCe|3,scan,sizeof(scan),false,nullptr);
+     m2log("CE scan submit rc=%d seq=%u directed=%u",rc,scanSeq,sl?1:0);
+     if (rc) return rc;
+     const uint32_t start=nowMs();
+     uint32_t publish=start;
+-    while (!shouldStop() && !firmwareFault && !scanDone && (uint32_t)(nowMs()-start)<20000) {
++    while (!shouldStop() && !firmwareFault && !scanDone && !cmdPending(CMD_JOIN|CMD_DISCONNECT) && (uint32_t)(nowMs()-start)<20000) {
+         rxDataPoll();
+         if ((uint32_t)(nowMs()-publish)>=1000) { m2Publish(); publish=nowMs(); }
+         IOSleep(1);
+@@ -209,10 +212,8 @@ int itlmt7922::m2Run()
      }
      if (!got || length-offset>3) { m2log("NIC cap missing MAC or trailing bytes=%lu",(unsigned long)(length-offset)); return -22; }
      while (offset<length) if (event[offset++]) return -22;
@@ -968,20 +1755,23 @@ index 4ddef55..bb76e42 100644
      uint8_t dev[16]={}; put16(dev+4,0); put16(dev+6,12); dev[8]=1; memcpy(dev+10,mac,6);
      rc=uniSend(1,dev,sizeof(dev),false,event,sizeof(event),&length,3000);
 diff --git a/src/itlmt7922_m3.cpp b/src/itlmt7922_m3.cpp
-index ad11950..a39da98 100644
+index ad11950..310b97f 100644
 --- a/src/itlmt7922_m3.cpp
 +++ b/src/itlmt7922_m3.cpp
-@@ -55,7 +55,8 @@ void itlmt7922::m3Publish(const char *stage)
+@@ -53,9 +53,10 @@ void itlmt7922::m3Publish(const char *stage)
+ }
+ 
  // Called by rxParseFrame for every beacon / probe response. `frame` points at the 802.11 header.
- void itlmt7922::m3Capture(const uint8_t *frame, uint32_t len, const char *ssid, uint8_t ch)
+-void itlmt7922::m3Capture(const uint8_t *frame, uint32_t len, const char *ssid, uint8_t ch)
++void itlmt7922::m3Capture(const uint8_t *frame, uint32_t len, const char *ssid, uint8_t ch, uint8_t ssidLength)
  {
 -    if (!m3On || !m3ssid[0] || len < 36 || strcmp(ssid, m3ssid) != 0) return;
-+    if (!m3ssid[0] || len < 36 || strcmp(ssid, m3ssid) != 0) return;
++    if (!m3ssidLength || len < 36 || ssidLength!=m3ssidLength || memcmp(ssid,m3ssid,ssidLength)) return;
 +    if (targetPinned && memcmp(frame + 16, requestedBssid, sizeof(requestedBssid))) return;
      // prefer 5 GHz; otherwise keep the first one seen
      if (tgtFound && !(ch > 14 && tgtCh <= 14)) return;
      tgtFound = true;
-@@ -152,7 +153,7 @@ void itlmt7922::m3Event(const uint8_t *ev, uint32_t len)
+@@ -152,13 +153,15 @@ void itlmt7922::m3Event(const uint8_t *ev, uint32_t len)
          for (uint32_t i=0;i<n;i++) text[i] = ev[46+i]>=32 && ev[46+i]<127 ? (char)ev[46+i] : '.';
          text[n]=0; m3log("fw: %s", text);
      }
@@ -990,7 +1780,25 @@ index ad11950..a39da98 100644
      if (uni && eid == UNI_ROC) {
          // Connac2 rxd36 + event hdr4 + TLV4 -> grant data44.
          uint16_t tag = (uint16_t)(ev[40] | (ev[41] << 8));
-@@ -200,20 +201,17 @@ void itlmt7922::m3ParseAp()
+         uint16_t tl = (uint16_t)(ev[42] | (ev[43] << 8));
+-        if (tag != 0 || tl < 20 || len < 40u + tl || ev[44] != M3_BSS_IDX || ev[45] != rocTok) return;
++        if (tag != 0 || tl < 20 || len < 40u + tl || ev[44] != M3_BSS_IDX || ev[45] != rocTok || ev[47]!=tgtCh) return;
+         rocStatus = ev[46]; rocGrant = true;
++        uint32_t duration=le32(ev+56); // grant max_interval at TLV offset 16 (request uses a different layout).
++        rocOn=rocStatus==0 && duration>0; rocDeadline=nowMs()+duration;
+         m3log("roc grant bss=%u tok=%u status=%u", ev[44], ev[45], ev[46]);
+     }
+ }
+@@ -181,7 +184,7 @@ void itlmt7922::m3ParseAp()
+                 for (int k = 0; k < 4; k++)
+                     if ((ie[2 + i] & 0x7f) == rcck[k]) { apCck |= 1u << k; if (ie[2 + i] & 0x80) apBasicCck |= 1u << k; }
+         } else if (id == 48 && l <= sizeof(apRsn) - 2) {
+-            apRsnLen = (uint8_t)(l + 2);
++            apRsnLen = (uint16_t)(l + 2);
+             memcpy(apRsn, ie, apRsnLen);
+         }
+         ie += 2 + l;
+@@ -200,20 +203,17 @@ void itlmt7922::m3ParseAp()
  // Features at `level` for the current AP: bit 0 A-MSDU, bit 1 HE, bit 2 160 MHz channel. Used to skip levels that change nothing.
  uint8_t itlmt7922::fastSig(uint8_t level)
  {
@@ -1014,7 +1822,7 @@ index ad11950..a39da98 100644
      if (!m3fast || lvl < 1) return;
      itl_caps_parse(tgtIe, tgtIeLen, &apCaps);
      bool g2 = tgtCh <= 14;
-@@ -223,7 +221,7 @@ void itlmt7922::m3FastPlan()
+@@ -223,7 +223,7 @@ void itlmt7922::m3FastPlan()
          baLog("fast off ch=%u ht=%d", tgtCh, apCaps.ht ? 1 : 0);
          return;
      }
@@ -1023,7 +1831,7 @@ index ad11950..a39da98 100644
      fastAllow160 = fastBw == 3;
      fastAmsdu = lvl >= 4 && !noAmsdu;
      fastHe = false; // HE ABI is not enabled in the first Connac2 full port.
-@@ -291,7 +289,7 @@ int itlmt7922::m3HwPrep()
+@@ -291,7 +291,7 @@ int itlmt7922::m3HwPrep()
      for (unsigned i=0;i<sizeof(ch5)/sizeof(ch5[0]);i++,w+=8) put16(w,ch5[i]);
      int rc=mcuSend(CE|0x0f,domain,(size_t)(w-domain),false,nullptr);
      if (rc) return rc;
@@ -1032,7 +1840,7 @@ index ad11950..a39da98 100644
      rx[10]=rx[0]>14?1:0;
      rc=mcuSend(0x4eed,rx,sizeof(rx),true,nullptr);
      if (rc) return rc;
-@@ -343,7 +341,7 @@ int itlmt7922::m3Bss(bool enable)
+@@ -343,7 +343,7 @@ int itlmt7922::m3Bss(bool enable)
      // Connac2 RLM uses short_st@10, ht_op_info@11, sco@12, Linux band@13.
      m.init(4); m.b[0]=M3_BSS_IDX;
      uint8_t *r=m.tlv(2,16); r[4]=tgtCh; r[5]=fastActive?fastCenter:tgtCh;
@@ -1041,7 +1849,19 @@ index ad11950..a39da98 100644
      r[10]=1; r[11]=r[7]?4:0; r[12]=r[4]<r[5]?1:r[4]>r[5]?3:0; r[13]=g2?0:1;
      m.b[2]=m.b[3]=0;
      rc=m3Cmd(UNI_BSS_INFO_UPDATE,m.b,m.n,"bss(rlm)");
-@@ -411,7 +409,7 @@ int itlmt7922::m3Sta(uint8_t state, bool newly, uint16_t aid)
+@@ -399,6 +399,11 @@ int itlmt7922::m3Sta(uint8_t state, bool newly, uint16_t aid)
+     M3Msg m; m.init(8); m.b[0]=M3_BSS_IDX; m.b[1]=M3_AP_WCID; m.b[4]=1;
+     uint8_t *b=m.tlv(0,20); put32(b+4,0x10002); b[8]=2; b[9]=1;
+     put16(b+10,aid); memcpy(b+12,tgtBssid,6); put16(b+18,newly?3:1);
++    if (state==255) {
++        b[8]=0; b[9]=0;
++        uint8_t *outer=m.tlv(13,12); outer[4]=M3_AP_WCID; outer[5]=1;
++        return m3Cmd(UNI_STA_REC_UPDATE,m.b,m.n,"sta(disconnect)");
++    }
+     bool ht=fastActive && state==2;
+     if (ht) {
+         uint8_t *h=m.tlv(9,8); put16(h+4,apCaps.htCap);
+@@ -411,7 +416,7 @@ int itlmt7922::m3Sta(uint8_t state, bool newly, uint16_t aid)
      p[7]=ht?apCaps.ampduParm:0;
      p[9]=tgtRssi<0 && tgtRssi>=-110?(uint8_t)(2*(tgtRssi+110)):100;
      uint8_t *ra=m.tlv(1,16); put16(ra+4,(uint16_t)(apSupp<<6)|(g2?apCck:0));
@@ -1050,18 +1870,37 @@ index ad11950..a39da98 100644
      uint8_t *st=m.tlv(7,12); st[8]=state;
      if (ht&&apCaps.vht) st[9]=(uint8_t)(fastBw|((fastNss?fastNss-1:0)<<4));
      // STA_REC_WTBL nests its own header and count; Connac3 direct HDR_TRANS/MLD are invalid here.
-@@ -499,13 +497,22 @@ bool itlmt7922::m3Xchg(const uint8_t *frame, uint32_t len, uint8_t subtype, uint
+@@ -448,6 +453,7 @@ int itlmt7922::m3Sta(uint8_t state, bool newly, uint16_t aid)
+ // ---------------------------------------------------------------------------------------------
+ int itlmt7922::m3Roc(bool acquire)
+ {
++    if (!acquire) rocOn=false;
+     uint8_t req[4 + 24];
+     bzero(req, sizeof(req));
+     uint8_t *t = req + 4;
+@@ -467,7 +473,7 @@ int itlmt7922::m3Roc(bool acquire)
+         t[12] = 0;                                           // bw_from_ap
+         t[13] = tgtCh;                                       // center_chan_from_ap
+         t[15] = 0;                                           // reqtype JOIN
+-        put32(t + 16, 5000);                                 // maxinterval (ms)
++        put32(t + 16, 30000);                                 // maxinterval (ms)
+         t[20] = 0xff;                                        // dbdcband: auto
+         return mcuSend((1u<<17)|UNI_ROC, req, sizeof(req), false, nullptr);
+     }
+@@ -499,13 +505,22 @@ bool itlmt7922::m3Xchg(const uint8_t *frame, uint32_t len, uint8_t subtype, uint
      m3rxLen = 0;
      m3wantFc = wantFc;
      bool got = false;
+-    for (int attempt = 1; attempt <= 4 && !got && !shouldStop() && !firmwareFault; attempt++) {
 +    uint32_t attempts = 0, queued = 0;
 +    const uint32_t rxBefore = rxPkts, freeBefore = stTxFree, failBefore = stTxFwFail;
-     for (int attempt = 1; attempt <= 4 && !got && !shouldStop() && !firmwareFault; attempt++) {
++    for (int attempt = 1; attempt <= 4 && !got && sessionCurrent(); attempt++) {
          bool ok = m3Tx(frame, len, 0, subtype);
 +        attempts++;
 +        if (ok) queued++;
          m3log("tx %02x len=%u #%d %s", frame[0], len, attempt, ok ? "queued" : "FAILED");
-         for (uint32_t i = 0; i < waitMs && !m3rxLen && !shouldStop() && !firmwareFault; i++) m3Pump(1);
+-        for (uint32_t i = 0; i < waitMs && !m3rxLen && !shouldStop() && !firmwareFault; i++) m3Pump(1);
++        for (uint32_t i = 0; i < waitMs && !m3rxLen && sessionCurrent(); i++) m3Pump(1);
          got = m3rxLen != 0;
      }
      m3wantFc = 0;
@@ -1073,12 +1912,12 @@ index ad11950..a39da98 100644
      if (!got) m3log("no response fc=%02x rxpk=%u txcpu=%u txdma=%u", wantFc, rxPkts, txData.head, rd(txData.regs + Q_DMA_IDX) & 0xffff);
      return got;
  }
-@@ -526,10 +533,16 @@ int itlmt7922::m3Auth()
+@@ -526,10 +541,16 @@ int itlmt7922::m3Auth()
      put16(f + 24, 0);                                            // open system
      put16(f + 26, 1);                                            // transaction 1
      put16(f + 28, 0);
 -    if (!m3Xchg(f, sizeof(f), 11, 0xb0, 150)) return ITL_TIMEOUT;
-+    if (!m3Xchg(f, sizeof(f), 11, 0xb0, 150)) {
++    if (!sessionCurrent() || !m3Xchg(f, sizeof(f), 11, 0xb0, 200)) {
 +        setProperty("wifi-auth-result", "no accepted authentication response; see wifi-mgmt");
 +        return ITL_TIMEOUT;
 +    }
@@ -1091,25 +1930,142 @@ index ad11950..a39da98 100644
      return (alg == 0 && seq == 2 && st == 0) ? 0 : ITL_EIO;
  }
  
-@@ -583,6 +596,8 @@ int itlmt7922::m3Run1()
+@@ -543,16 +564,14 @@ int itlmt7922::m3Assoc()
+     bool g2 = tgtCh <= 14;
+     put16(p, g2 ? 0x0431 : 0x0411); p += 2;                     // ESS | PRIVACY | short slot (| short preamble on 2.4 GHz)
+     put16(p, 10); p += 2;                                        // listen interval
+-    uint8_t sl = (uint8_t)strlen(m3ssid);
++    uint8_t sl = m3ssidLength;
+     *p++ = 0; *p++ = sl; memcpy(p, m3ssid, sl); p += sl;
+     static const uint8_t rates[8] = {0x8c, 0x12, 0x98, 0x24, 0xb0, 0x48, 0x60, 0x6c};
+     static const uint8_t rates2g[8] = {0x82, 0x84, 0x8b, 0x96, 0x0c, 0x12, 0x18, 0x24};     // 1, 2, 5.5, 11 (CCK), 6, 9, 12, 18
+     static const uint8_t ext2g[4] = {0x30, 0x48, 0x60, 0x6c};                               // 24, 36, 48, 54
+     *p++ = 1; *p++ = 8; memcpy(p, g2 ? rates2g : rates, 8); p += 8;
+     if (g2) { *p++ = 50; *p++ = 4; memcpy(p, ext2g, 4); p += 4; }
+-    static const uint8_t rsn[22] = {0x30, 0x14, 0x01, 0x00, 0x00, 0x0f, 0xac, 0x04, 0x01, 0x00, 0x00, 0x0f, 0xac, 0x04,
+-                                    0x01, 0x00, 0x00, 0x0f, 0xac, 0x02, 0x00, 0x00};
+-    memcpy(p, rsn, sizeof(rsn)); p += sizeof(rsn);
++    memcpy(p,rsnSecurity.station,rsnSecurity.stationLength); p+=rsnSecurity.stationLength;
+     if (fastActive) {
+         p += itl_caps_build_ht(p);
+         if (apCaps.vht) p += itl_caps_build_vht(p, fastAllow160);
+@@ -560,11 +579,27 @@ int itlmt7922::m3Assoc()
+         static const uint8_t wmm[9] = {0xdd, 0x07, 0x00, 0x50, 0xf2, 0x02, 0x00, 0x01, 0x00};   // WMM information element: we are QoS-capable
+         memcpy(p, wmm, sizeof(wmm)); p += sizeof(wmm);
+     }
+-    if (!m3Xchg(f, (uint32_t)(p - f), 0, 0x10, 150)) return ITL_TIMEOUT;
++    if (!sessionCurrent() || !m3Xchg(f, (uint32_t)(p - f), 0, 0x10, 200)) return ITL_TIMEOUT;
+     uint16_t st = (uint16_t)(m3rx[26] | (m3rx[27] << 8)), aid = (uint16_t)((m3rx[28] | (m3rx[29] << 8)) & 0x3fff);
+     m3log("assoc resp status=%u aid=%u", st, aid);
+-    if (st) return ITL_EIO;
++    if (st || !aid || aid>2007 || (m3rx[24]&0x11)!=0x11 || !sessionCurrent()) return ITL_EIO;
++    bool haveRates=false;
++    const uint8_t *ie=m3rx+30,*end=m3rx+m3rxLen;
++    while (ie<end) {
++        if (end-ie<2 || ie[1]+2>end-ie) return ITL_EIO;
++        if (ie[0]==1 && ie[1]>0 && ie[1]<=8) haveRates=true;
++        ie+=2+ie[1];
++    }
++    if (!haveRates) return ITL_EIO;
++    if (fastActive) {
++        itl_ap_caps response={}; itl_caps_parse(m3rx+30,m3rxLen-30,&response);
++        if (!response.ht || (apCaps.vht && !response.vht)) return ITL_EIO;
++        apCaps=response;
++        itl_caps_channel(&apCaps,tgtCh,false,&fastBw,&fastCenter);
++        fastNss=itl_caps_nss(&apCaps); fastRate=itl_caps_max_rate(&apCaps,fastBw,false);
++    }
+     m3aid = aid;
++    associationReady=true;
+     return 0;
+ }
+ 
+@@ -574,6 +609,9 @@ int itlmt7922::m3Assoc()
+ int itlmt7922::m3Run1()
+ {
+     m3log("armed");
++    m3hsApLeave=false; m3hsApReason=0; rocOn=false;
++    associationReady=false;
++    rsn.reset(); for (auto &key:rxKeys) key.clear();
+     m3stepDown = m3stepRadio = false;                        // per-attempt state (an earlier attempt may have failed half way)
+     m3reachedAssoc = false;
+     m3cipher = 0;
+@@ -583,6 +621,9 @@ int itlmt7922::m3Run1()
      m3eapolLen = 0;
      m3eapolHead = m3eapolTail = m3eapolDrops = 0;
      m3rxLen = 0;
++    __atomic_store_n(&tgtBcnCount,0,__ATOMIC_RELAXED); tgtLastBcnMs=0;
 +    removeProperty("wifi-auth-result");
 +    removeProperty("wifi-mgmt");
      fastActive = false;
      txPool = true;
  
-@@ -613,6 +628,8 @@ int itlmt7922::m3Run1()
+@@ -605,24 +646,29 @@ int itlmt7922::m3Run1()
+     for (int pass = 0; pass < 2; pass++)
+         for (int i = 0; i < nn; i++) {
+             bool seen = false;
+-            for (int j = 0; j < nAps; j++) if (!strcmp(aps[j].ssid, nets[i].ssid)) seen = true;
++            for (int j=0;j<nAps;j++) if (aps[j].ssidLen==nets[i].ssidLen && !memcmp(aps[j].ssid,nets[i].ssid,nets[i].ssidLen)) seen=true;
+             if (seen == (pass == 0)) order[no++] = i;
+         }
+     int sel = -1;
+     for (int attempt = 1; attempt <= 3 && sel < 0 && !shouldStop() && !firmwareFault; attempt++) {
          for (int k = 0; k < no && sel < 0 && !shouldStop() && !firmwareFault && !cmdPending(CMD_JOIN | CMD_DISCONNECT); k++) {
              int i = order[k];
-             strlcpy(m3ssid, nets[i].ssid, sizeof(m3ssid));
+-            strlcpy(m3ssid, nets[i].ssid, sizeof(m3ssid));
++            memcpy(m3ssid,nets[i].ssid,sizeof(m3ssid)); m3ssidLength=nets[i].ssidLen;
++            activeAttempt=nets[i].sequence;
 +            targetPinned = nets[i].native;
 +            memcpy(requestedBssid, nets[i].bssid, sizeof(requestedBssid));
              tgtFound = false;
              m3log("scan #%d for net%d (directed)", attempt, i + 1);
-             m2Scan(m3ssid);
-@@ -664,6 +681,12 @@ int itlmt7922::m3Run1()
+-            m2Scan(m3ssid);
++            m2Scan(m3ssid,m3ssidLength);
+             for (int w = 0; w < 5 && !tgtFound && !shouldStop() && !firmwareFault; w++) { rxDataPoll(); IOSleep(100); }
+             if (tgtFound) sel = i;
+         }
+     }
+     m3Publish("scan");
+     if (sel < 0) { m3log("no configured network seen in the scan"); return ITL_EIO; }
+-    strlcpy(m3ssid, nets[sel].ssid, sizeof(m3ssid));
++    memcpy(m3ssid,nets[sel].ssid,sizeof(m3ssid)); m3ssidLength=nets[sel].ssidLen;
++    requestedChannel=nets[sel].channelSpec & 0xff;
++    requestedRsnLength=nets[sel].rsnLength; memcpy(requestedRsn,nets[sel].rsn,requestedRsnLength);
+     strlcpy(m3psk, nets[sel].psk, sizeof(m3psk));
+     // candNets stays: the fall-back ladder in m3Run() calls this again for the next level; m3Supervise() wipes it afterwards
+     m3log("selected net%d ssid len=%u", sel + 1, (unsigned)strlen(m3ssid));
+@@ -640,7 +686,7 @@ int itlmt7922::m3Run1()
+     // PMK now (4096 PBKDF2 iterations), kept for the 4-way handshake; native Wi-Fi hands over the key its supplicant derived
+     uint8_t pmk[32];
+     if (nets[sel].hasPmk) memcpy(pmk, nets[sel].pmk, sizeof(pmk));
+-    else itl_wpa_pmk(m3psk, (const uint8_t *)m3ssid, strlen(m3ssid), pmk);
++    else itl_wpa_pmk(m3psk, (const uint8_t *)m3ssid, m3ssidLength, pmk);
+     memcpy(m3pmk, pmk, sizeof(m3pmk));
+     bzero(pmk, sizeof(pmk));
+     m3log("pmk ready");
+@@ -648,15 +694,20 @@ int itlmt7922::m3Run1()
+ 
+     // step 2: firmware / hardware prep, BSS + STA records in the "not associated" state, ROC on the AP's channel
+     m3ParseAp();
++    if (!sessionCurrent() || (requestedChannel && requestedChannel!=tgtCh) ||
++        !itl_rsn_select(apRsn,apRsnLen,requestedRsn,requestedRsnLength,&rsnSecurity)) {
++        m3Publish("security-fail"); setProperty("wifi-rsn-error","unsupported or inconsistent WPA2 CCMP/PSK profile"); return ITL_EINVAL;
++    }
+     int prepRc = m3HwPrep();
+     if (prepRc) { m3Publish("hw-prep-fail"); return prepRc; }
+     int setupRc=m3Bss(false);
+     if (!setupRc) setupRc=m3Sta(0,true,0);
++    if (!setupRc) rsnHardwareActive=true;
+     if (!setupRc) setupRc=m3Roc(true);
+-    if (setupRc) return setupRc;
++    if (setupRc) { rsnClear(this); m3Publish("setup-fail"); return setupRc; }
+     for (int i = 0; i < 1000 && !rocGrant && !shouldStop() && !firmwareFault; i++) m3Pump(1);
+     m3log("roc grant=%d status=%u", rocGrant ? 1 : 0, rocStatus);
+-    if (!rocGrant || rocStatus != 0) { m3Publish("roc-fail"); m3Roc(false); return ITL_EIO; }
++    if (!rocGrant || rocStatus != 0) { m3Publish("roc-fail"); m3Roc(false); rsnClear(this); return ITL_EIO; }
+ 
+     // step 3: open-system authentication and association, both on the channel held by the ROC
+     m3log("sta mac %02x:%02x:%02x:%02x:%02x:%02x", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+@@ -664,6 +715,12 @@ int itlmt7922::m3Run1()
      m3Publish(rc ? "auth-fail" : "auth-ok");
      if (!rc) {
          m3reachedAssoc = true;
@@ -1122,18 +2078,22 @@ index ad11950..a39da98 100644
          rc = m3Assoc();
          m3Publish(rc ? "assoc-fail" : "assoc-ok");
      }
-@@ -673,9 +696,9 @@ int itlmt7922::m3Run1()
+@@ -673,12 +730,12 @@ int itlmt7922::m3Run1()
          rc=m3Bss(true);
          if (!rc) rc=m3Sta(2,false,m3aid);
          if (!rc) rc=m3Handshake();
 -        m3wantEapol = false;
          m3Publish(rc ? "hs-fail" : "hs-ok");
      }
-+    m3wantEapol = false;
++    if (rc || !sessionCurrent()) { m3wantEapol=false; rsnClear(this); rsn.reset(); if (!rc) rc=ITL_EIO; }
      m3Roc(false);
      bzero(m3pmk, sizeof(m3pmk));
-     if (!rc) {
-@@ -691,12 +714,12 @@ int itlmt7922::m3Run1()
+-    if (!rc) {
++    if (!rc && sessionCurrent()) {
+         m3log("RESULT rc=0 link up");
+         m3Link();                                            // returns only when this level has to be given up (m3stepDown)
+         return ITL_EIO;
+@@ -691,12 +748,12 @@ int itlmt7922::m3Run1()
      return rc;
  }
  
@@ -1148,33 +2108,486 @@ index ad11950..a39da98 100644
      lvl = m3fast ? (fastLevel < lvlCap ? fastLevel : lvlCap) : 0;
      for (; !shouldStop() && !firmwareFault;) {
          int rc = m3Run1();
-@@ -1050,10 +1073,8 @@ int itlmt7922::m3Handshake()
-     bzero(zero, sizeof(zero));
-     read_random(snonce, sizeof(snonce));
-     m3dataOn = true;
+@@ -731,15 +788,12 @@ int itlmt7922::m3Run()
+ void itlmt7922::m3Teardown()
+ {
+     m3linkUp = false;
++    m3wantEapol=false; rsnClear(this); rsn.reset(); bzero(m3pmk,sizeof(m3pmk));
++    associationReady=false;
++    m3eapolHead=m3eapolTail=0; bzero(m3eapolQueue,sizeof(m3eapolQueue));
+     ethLink(false);
+     if (shouldStop() || firmwareFault) { m3dataOn=false; return; }
+     baReset();
+-    uint8_t f[26];
+-    m3Hdr(f, 0xc0, tgtBssid, mac);                           // deauthentication, reason 3: station is leaving
+-    put16(f + 24, 3);
+-    m3Tx(f, sizeof(f), 0, 12);
+-    IOSleep(100);
+-    m3Bss(false);                                            // BSS back to "not connected"
+     m3dataOn = false;
+     m3cipher = 0;
+     IOSleep(100);
+@@ -882,8 +936,9 @@ void itlmt7922::amsduFlush()
+     a.active = false;
+     uint32_t used = a.used;
+     a.used = 0;
+-    if (rxBa[a.tid].r.active) itl_reorder_rx(&rxBa[a.tid].r, a.sn, used ? a.buf : nullptr, used, nowMs(), baDeliverCb, this);   // used == 0 still takes up the sequence number
+-    else if (used) itl_bundle_each(a.buf, used, ethDeliverCb, this);
++    if (used<=16) used=0;
++    if (a.reorder && rxBa[a.tid].r.active) itl_reorder_rx(&rxBa[a.tid].r,a.sn,used?a.buf:nullptr,used,nowMs(),baDeliverCb,this);
++    else if (used) baDeliverCb(this,a.buf,used);
+ }
+ 
+ void itlmt7922::rxStore(const uint8_t *eb, uint32_t n, bool reorder, uint8_t tid, uint16_t sn, bool last)
+@@ -891,13 +946,19 @@ void itlmt7922::rxStore(const uint8_t *eb, uint32_t n, bool reorder, uint8_t tid
+     AmsduAsm &a = amsduAsm;
+     szParsed[szClass(n)]++;
+     if (isBigEcho(eb, n, 0)) icmpRepParsed++;
+-    if (!reorder) {
++    if (!reorder && !rxCoalesce) {
+         amsduFlush();
+-        ethDeliver(eb, n);
++        if (rxAccept(currentRxPn,currentRxKey,currentRxTid,currentRxEpoch)) ethDeliver(eb,n);
+         return;
+     }
+     if (a.active && (a.tid != tid || a.sn != sn)) amsduFlush();
+-    if (!a.active) { a.active = true; a.tid = tid; a.sn = sn; a.used = 0; a.t = nowMs(); }
++    if (!a.active) {
++        a.active=true; a.tid=tid; a.sn=sn; a.used=16; a.t=nowMs(); a.reorder=reorder;
++        bzero(a.buf,16); memcpy(a.buf,&currentRxPn,8); a.buf[8]=currentRxKey; a.buf[9]=currentRxTid;
++        memcpy(a.buf+12,&currentRxEpoch,4);
++    }
++    uint64_t bundlePn=0; memcpy(&bundlePn,a.buf,8);
++    if (bundlePn!=currentRxPn || a.buf[8]!=currentRxKey) { stRxDrop++; return; }
+     uint32_t u = itl_bundle_add(a.buf, sizeof(a.buf), a.used, eb, n);
+     if (u == a.used) { stRxDrop++; stBundleOvf++; } else a.used = u;
+     if (last) amsduFlush();
+@@ -925,11 +986,12 @@ void itlmt7922::amsduFrameCb(void *ctx, const uint8_t *da, const uint8_t *sa, ui
+ uint32_t itlmt7922::m3RxAmsdu(const uint8_t *b, uint32_t n, uint8_t ai, bool reorder, uint8_t tid, uint16_t sn)
+ {
+     M3AmsduCtx x = { this, reorder, tid, sn, 0 };
+-    if (reorder) {
++    rxCoalesce=true;
++    {
+         // a new MPDU (first subframe, or another sequence number) closes the previous bundle; an MPDU whose subframes all fail
+         // to parse still has to take up its sequence number, so the bundle is opened before parsing
+         if (amsduAsm.active && (ai == 3 || amsduAsm.tid != tid || amsduAsm.sn != sn)) amsduFlush();
+-        if (!amsduAsm.active) { amsduAsm.active = true; amsduAsm.tid = tid; amsduAsm.sn = sn; amsduAsm.used = 0; amsduAsm.t = nowMs(); }
++        // rxStore opens the metadata-prefixed MPDU bundle before its first accepted subframe.
+     }
+     // The Connac2 data codec has already removed the hardware A-MSDU pad.
+     // Parse exactly that normalized body; do not search alternate offsets.
+@@ -937,7 +999,8 @@ uint32_t itlmt7922::m3RxAmsdu(const uint8_t *b, uint32_t n, uint8_t ai, bool reo
+     if (found > x.good) stRxBigDrop += found - x.good;
+     // Connac2 payload format 0 is a complete MPDU, and 1 its last split
+     // subframe. Both close the bundle immediately; first/middle stay open.
+-    if (reorder && mt7922_amsdu_complete(ai)) amsduFlush();
++    if (mt7922_amsdu_complete(ai)) amsduFlush();
++    rxCoalesce=false;
+     return x.good;
+ }
+ 
+@@ -945,10 +1008,10 @@ uint32_t itlmt7922::m3RxAmsdu(const uint8_t *b, uint32_t n, uint8_t ai, bool reo
+ // the hardware once the keys are installed). EAPOL goes to the handshake, everything else to the Ethernet interface.
+ // The header sits after up to 32 + 4 x 16 + 96 bytes of RXD groups (mt7922_mac_fill_rx), so look for it from byte 32 on.
+ 
+-bool itlmt7922::m3TxData(const uint8_t *da, uint16_t ethertype, const uint8_t *payload, uint32_t plen, bool protect, bool *full)
++bool itlmt7922::m3TxData(const uint8_t *da, uint16_t ethertype, const uint8_t *payload, uint32_t plen, bool protect, bool *full, uint16_t *token)
+ {
+     uint8_t f[34 + 1560];
+-    if (plen > 1560) return false;
++    if (plen > ITL_RSN_FRAME_MAX) return false;
+     // With HT/VHT negotiated, unicast data (not the EAPOL handshake) goes out as QoS data (TID 0) at the rate the firmware
+     // chooses; group-addressed frames and everything else keep the fixed basic rate.
+     bool ra = fastActive && m3linkUp && ethertype != 0x888e && !(da[0] & 1);
+@@ -962,7 +1025,7 @@ bool itlmt7922::m3TxData(const uint8_t *da, uint16_t ethertype, const uint8_t *p
+     M3TxOpt o;
+     o.protect = protect;
+     o.rateAdapt = ra;
+-    o.full = full;
++    o.full = full; o.token=token;
+     if (ra) o.qidx = 1; // Connac2 AC_BE mapping applies before TX Block Ack too.
+     uint16_t sn = txSn;
+     if (ra && lvl >= 3) {
+@@ -990,6 +1053,8 @@ bool itlmt7922::m3TxData(const uint8_t *da, uint16_t ethertype, const uint8_t *p
+ int itlmt7922::ethTx(const uint8_t *e, uint32_t len)
+ {
+     if (!m3linkUp || len < 14) return -1;
++    if (activeAttempt!=__atomic_load_n(&njSeq,__ATOMIC_ACQUIRE) || cmdPending(CMD_JOIN|CMD_DISCONNECT)) return -1;
++    if (__atomic_load_n(&rsnKeyUpdate,__ATOMIC_ACQUIRE)) return 1;
+     bool full = false;
+     bool ok = m3TxData(e, be16p(e + 12), e + 14, len - 14, true, &full);
+     if (full) return 1;
+@@ -1002,11 +1067,11 @@ int itlmt7922::ethTx(const uint8_t *e, uint32_t len)
+ // STA_REC_KEY_V3 (mt7922_mcu_sta_key_tlv): CCMP key on the AP's wcid (pairwise) or on the BSS's broadcast wcid (group)
+ int itlmt7922::m3Key(uint16_t wcid, bool pairwise, uint8_t keyId, const uint8_t *key, uint8_t keyLen)
+ {
+-    if (!key || keyLen!=16 || wcid>19) return ITL_EINVAL;
++    if ((keyLen!=0 && (!key || keyLen!=16)) || wcid>19 || keyId>3) return ITL_EINVAL;
+     M3Msg m; m.init(8); m.b[0]=M3_BSS_IDX; m.b[1]=(uint8_t)wcid; m.b[4]=1; m.b[5]=pairwise?0:0xe;
+-    uint8_t *s=m.tlv(0x11,44); // STA_REC_KEY_V2, one 36-byte sec_key
+-    s[4]=0; s[5]=1; s[8]=5; // SET_KEY=0, one cipher, MCU_CIPHER_AES_CCMP=5 (RXD SEC_MODE uses4)
+-    s[9]=36; s[10]=keyId; s[11]=keyLen; memcpy(s+12,key,keyLen);
++    uint8_t *s=m.tlv(0x11,keyLen?44:8); // STA_REC_KEY_V2, one 36-byte sec_key
++    s[4]=keyLen?0:1; s[5]=keyLen?1:0; if (keyLen) { s[8]=5; // SET_KEY=0, one cipher, MCU_CIPHER_AES_CCMP=5 (RXD SEC_MODE uses4)
++    s[9]=36; s[10]=keyId; s[11]=keyLen; memcpy(s+12,key,keyLen); }
+     int rc=m3Cmd(UNI_STA_REC_UPDATE,m.b,m.n,pairwise?"key_v2(ptk)":"key_v2(gtk)");
+     bzero(m.b,sizeof(m.b)); return rc;
+ }
+@@ -1040,174 +1105,10 @@ bool itlmt7922::m3EapolNext()
+     return true;
+ }
+ 
+-int itlmt7922::m3Handshake()
+-{
+-    static const uint8_t rsnIe[22] = {0x30, 0x14, 0x01, 0x00, 0x00, 0x0f, 0xac, 0x04, 0x01, 0x00, 0x00, 0x0f, 0xac, 0x04,
+-                                      0x01, 0x00, 0x00, 0x0f, 0xac, 0x02, 0x00, 0x00};
+-    uint8_t snonce[32], zero[32], replay[8] = {}, anonce[32] = {}, out[160], kd[8 * 40];
+-    itl_eapol_key k;
+-    itl_ptk ptk = {};
+-    bzero(zero, sizeof(zero));
+-    read_random(snonce, sizeof(snonce));
+-    m3dataOn = true;
 -    m3eapolLen = 0;
 -    m3eapolHead = m3eapolTail = m3eapolDrops = 0;
 -    m3hsApLeave = false;
 -    m3hsApReason = 0;
-+    // The receive queue was armed before association. An early M1 may already
-+    // be queued while BSS/STA commands wait for firmware responses.
-     removeProperty("wifi-pmkid-match");
-     removeProperty("wifi-handshake");
-     m3wantEapol = true;
-@@ -1234,6 +1255,7 @@ void itlmt7922::m3Link()
+-    removeProperty("wifi-pmkid-match");
+-    removeProperty("wifi-handshake");
+-    m3wantEapol = true;
+-
+-    bool have1 = false, got3 = false;
+-    uint32_t m1Count = 0, m2Count = 0, badMic = 0, rejected = 0;
+-    uint32_t started = nowMs(), phaseStart = started, lastM2 = 0;
+-    uint32_t rxBefore = stRxEapol, freeBefore = stTxFree, failBefore = stTxFwFail;
+-    size_t n2 = 0;
+-    auto sendM2 = [&]() {
+-        bool ok = m3TxData(tgtBssid, 0x888e, out, (uint32_t)n2, false);
+-        m2Count++;
+-        lastM2 = nowMs();
+-        m3log("eapol m2 #%u queued=%u replay=%02x%02x%02x%02x%02x%02x%02x%02x", m2Count, ok,
+-              replay[0], replay[1], replay[2], replay[3], replay[4], replay[5], replay[6], replay[7]);
+-    };
+-    // Six seconds for M1 and, after the first M1, six for M3. Retransmitted M1s
+-    // do not extend the deadline. Each one gets a response with ITS counter and ANonce.
+-    while ((uint32_t)(nowMs() - phaseStart) < 6000 && !got3 && !m3hsApLeave && !shouldStop() && !firmwareFault) {
+-        m3Pump(1);
+-        if (m3hsApLeave) break;
+-        while (m3EapolNext()) {
+-            int rc = itl_eapol_parse(m3eapol, m3eapolLen, &k);
+-            if (rc) { rejected++; continue; }
+-            m3log("eapol rx info=%04x len=%u replay=%02x%02x%02x%02x%02x%02x%02x%02x",
+-                  k.info, m3eapolLen, k.replay[0], k.replay[1], k.replay[2], k.replay[3],
+-                  k.replay[4], k.replay[5], k.replay[6], k.replay[7]);
+-            const uint16_t required = ITL_KI_PAIRWISE | ITL_KI_ACK;
+-            if ((k.info & ITL_KI_VER_MASK) != 2 || (k.info & required) != required ||
+-                (k.info & (ITL_KI_ERROR | ITL_KI_REQUEST))) {
+-                rejected++;
+-                m3log("eapol rejected unsupported flags=%04x", k.info);
+-                continue;
+-            }
+-            if (!(k.info & ITL_KI_MIC) && !(k.info & ITL_KI_INSTALL)) {
+-                int cmp = have1 ? memcmp(k.replay, replay, 8) : 1;
+-                if (cmp < 0 || (have1 && cmp == 0 && memcmp(k.nonce, anonce, 32))) {
+-                    rejected++;
+-                    m3log("eapol m1 rejected stale/inconsistent replay");
+-                    continue;
+-                }
+-                if (!have1) {
+-                    phaseStart = nowMs();
+-                    // An AP may include its PMKID in M1. Compare without publishing either
+-                    // key or hash: this separates a PMK/station-identity mismatch from lost M2/M3.
+-                    bool pmkidPresent = false;
+-                    const uint8_t *e = k.data, *end = k.data + k.datalen;
+-                    for (; e + 2 <= end && e + 2 + e[1] <= end; e += 2 + e[1]) {
+-                        if (e[0] != 0xdd || e[1] != 20 || e[2] != 0 || e[3] != 0x0f || e[4] != 0xac || e[5] != 4) continue;
+-                        uint8_t name[20], hash[20], diff = 0;
+-                        memcpy(name, "PMK Name", 8);
+-                        memcpy(name + 8, tgtBssid, 6);
+-                        memcpy(name + 14, mac, 6);
+-                        itl_hmac_sha1(m3pmk, 32, name, sizeof(name), nullptr, 0, hash);
+-                        for (int i = 0; i < 16; i++) diff |= hash[i] ^ e[6 + i];
+-                        setProperty("wifi-pmkid-match", diff == 0);
+-                        m3log("eapol m1 PMKID present match=%u", diff == 0);
+-                        bzero(hash, sizeof(hash));
+-                        pmkidPresent = true;
+-                        break;
+-                    }
+-                    if (!pmkidPresent) m3log("eapol m1 PMKID absent");
+-                }
+-                bool changed = !have1 || memcmp(anonce, k.nonce, 32);
+-                memcpy(replay, k.replay, 8);
+-                memcpy(anonce, k.nonce, 32);
+-                if (changed) itl_wpa_ptk(m3pmk, tgtBssid, mac, anonce, snonce, &ptk);
+-                have1 = true;
+-                m1Count++;
+-                n2 = itl_eapol_build(out, 0x010a, 0, replay, snonce, rsnIe, sizeof(rsnIe));
+-                itl_eapol_mic(ptk.kck, out, n2);
+-                m3log("eapol m1 #%u anonceChanged=%u", m1Count, changed);
+-                sendM2();
+-                continue;
+-            }
+-            if (!have1 || (k.info & (ITL_KI_MIC | ITL_KI_INSTALL)) != (ITL_KI_MIC | ITL_KI_INSTALL)) {
+-                rejected++;
+-                m3log("eapol rejected unexpected state/flags");
+-                continue;
+-            }
+-            if (memcmp(k.replay, replay, 8) <= 0 || memcmp(k.nonce, anonce, 32)) {
+-                rejected++;
+-                m3log("eapol m3 rejected replay/ANonce");
+-                continue;
+-            }
+-            uint32_t elen = 4u + be16p(m3eapol + 2);
+-            if (!itl_eapol_mic_ok(ptk.kck, m3eapol, elen)) {
+-                badMic++;
+-                m3log("eapol m3 MIC rejected count=%u", badMic);
+-                continue;
+-            }
+-            got3 = true;
+-            break;  // k.data points into m3eapol: do not pop another frame before GTK processing.
+-        }
+-        if (!got3 && have1 && (uint32_t)(nowMs() - lastM2) >= 1500) sendM2();
+-    }
+-    char summary[200];
+-    snprintf(summary, sizeof(summary), "m1=%u m2=%u m3=%u rx=%u micBad=%u reject=%u drop=%u txFree=%u txFail=%u apLeave=%u reason=%u ms=%u",
+-             m1Count, m2Count, got3, stRxEapol - rxBefore, badMic, rejected, m3eapolDrops,
+-             stTxFree - freeBefore, stTxFwFail - failBefore, m3hsApLeave, m3hsApReason, nowMs() - started);
+-    setProperty("wifi-handshake", summary); // survives saturation of the older 3 KB m3-log
+-    m3log("eapol summary %s", summary);
+-    if (!got3) {
+-        bzero(&ptk, sizeof(ptk));
+-        bzero(snonce, sizeof(snonce));
+-        m3log("eapol: %s", have1 ? "no valid msg3" : "no msg1");
+-        evLog("handshake failed: %s", summary);
+-        return (badMic || m3hsApLeave) ? ITL_EIO : ITL_TIMEOUT;
+-    }
+-    m3log("eapol m3 info=%04x mic ok datalen=%u", k.info, k.datalen);
+-
+-    // key data: wrapped RSN IE + GTK KDE
+-    uint8_t gtk[32], gtkId = 0, gtkLen = 0;
+-    if ((k.info & ITL_KI_ENCRYPTED) && k.datalen >= 24 && k.datalen <= sizeof(kd) + 8 &&
+-        itl_aes128_unwrap(ptk.kek, k.data, k.datalen, kd) == 0) {
+-        const uint8_t *e = kd, *end = kd + k.datalen - 8;
+-        while (e + 2 <= end && e + 2 + e[1] <= end) {
+-            if (e[0] == 0xdd && e[1] >= 22 && e[2] == 0x00 && e[3] == 0x0f && e[4] == 0xac && e[5] == 1) {
+-                gtkLen = (uint8_t)(e[1] - 6);
+-                if (gtkLen > sizeof(gtk)) gtkLen = 0;
+-                else { gtkId = e[6] & 3; memcpy(gtk, e + 8, gtkLen); }
+-                break;
+-            }
+-            e += 2 + e[1];
+-        }
+-    } else {
+-        m3log("eapol: key data not usable (info=%04x len=%u)", k.info, k.datalen);
+-    }
+-    m3log("gtk id=%u len=%u", gtkId, gtkLen);
+-    if (gtkLen != 16) return ITL_EIO;
+-
+-    // msg4: ver 2 | pairwise | MIC | secure
+-    uint8_t replay3[8];
+-    memcpy(replay3, k.replay, 8);
+-    size_t n4 = itl_eapol_build(out, 0x030a, 0, replay3, zero, nullptr, 0);
+-    itl_eapol_mic(ptk.kck, out, n4);
+-    bool ok = m3TxData(tgtBssid, 0x888e, out, (uint32_t)n4, false);
+-    m3log("eapol m4 tx %s", ok ? "queued" : "FAILED");
+-    for (int i = 0; i < 30; i++) m3Pump(1);                    // let it go out in the clear before the keys arrive
+-
+-    m3cipher = 4;
+-    int bssRc = ok ? m3Bss(true) : ITL_EIO;
+-    int r1 = bssRc ? bssRc : m3Key(M3_AP_WCID, true, 0, ptk.tk, 16);
+-    int r2 = r1 ? r1 : m3Key(M3_BMC_WCID, false, gtkId, gtk, 16);
+-    memcpy(m3ptk, &ptk, sizeof(m3ptk));
+-    bzero(&ptk, sizeof(ptk));
+-    bzero(gtk, sizeof(gtk));
+-    bzero(kd, sizeof(kd));
+-    return (r1 || r2) ? ITL_EIO : 0;
+-}
+-
+ // Link is up: expose the Ethernet interface and keep servicing the receive rings. Returns only to give up the current fast level.
+ void itlmt7922::m3Link()
+ {
++    if (!sessionCurrent() || !rsn.authorized()) return;
+     bool eok = nativeMode || eth || ethCreate();
+     m3log("%s interface %s", nativeMode ? "native" : "ethernet", eok ? "ready" : "FAILED");
+     if (!eok) {
+@@ -1234,12 +1135,14 @@ void itlmt7922::m3Link()
      linkUpMs = t0;
      lastReorderMs = t0;
      m3lost = false;
-+    __atomic_store_n(&tgtBcnCount, 0, __ATOMIC_RELAXED);
-     tgtLastBcnMs = 0;                                        // beacon watch is armed by the first beacon of this link
+-    tgtLastBcnMs = 0;                                        // beacon watch is armed by the first beacon of this link
++    // Beacons received during association/RSN belong to this attempt.
++    // Preserve the first associated beacon from this attempt.
      lastRxDataMs = t0;
      tgtRssi = 0;
+     wifiState("connected", "");
+     wifiLink();
+     if (njState == ITL_NATIVE_CONNECTING) njState = ITL_NATIVE_UP;   // the join the Family asked for (before its link callback)
++    publishSnapshot();
+     // Native publication may wake DHCP immediately. Radio TX/session state
+     // must already be ready before entering the Family link transition.
+     ethLink(true);
+@@ -1247,7 +1150,11 @@ void itlmt7922::m3Link()
+     bool watchdogDone = false, silenceDone = false;
+     for (; !shouldStop() && !firmwareFault;) {
+         int act = m3PumpOnce();
++        rsnService(); publishSnapshot();
+         uint32_t now = nowMs();
++        if (!__atomic_load_n(&tgtBcnCount,__ATOMIC_RELAXED) && now-t0>5000) {
++            m3lost=true; strlcpy(m3lostWhy,"no associated beacon after key authorization",sizeof(m3lostWhy));
++        }
+         if (cmdPending(CMD_SCAN)) {                          // scan on the link: the firmware returns to the AP's channel between dwells
+             cmdTake(CMD_SCAN, nullptr);
+             wifiScan();
+diff --git a/src/itlmt7922_rsn.cpp b/src/itlmt7922_rsn.cpp
+new file mode 100644
+index 0000000..b284b26
+--- /dev/null
++++ b/src/itlmt7922_rsn.cpp
+@@ -0,0 +1,135 @@
++// SPDX-License-Identifier: BSD-3-Clause-Clear
++#include "itlmt7922.hpp"
++#include "mt7922_regs.h"
++#include <string.h>
++#include <libkern/libkern.h>
++#include <sys/random.h>
++
++bool itlmt7922::sessionCurrent() const {
++    return !shouldStop() && !firmwareFault && !m3hsApLeave &&
++        (!rocOn || (int32_t)(rocDeadline-const_cast<itlmt7922 *>(this)->nowMs())>0) &&
++        activeAttempt==__atomic_load_n(&njSeq,__ATOMIC_ACQUIRE) && !cmdPending(CMD_JOIN|CMD_DISCONNECT);
++}
++bool itlmt7922::rsnCancelled(void *ctx) { return !((itlmt7922 *)ctx)->sessionCurrent(); }
++void itlmt7922::rsnRandom(void *,uint8_t *p,size_t n) { read_random(p,n); }
++
++bool itlmt7922::rsnSend(void *ctx,const uint8_t *frame,size_t n,bool protect,bool confirm) {
++    auto *d=(itlmt7922 *)ctx;
++    if (!d->sessionCurrent() || n>ITL_RSN_FRAME_MAX) return false;
++    uint16_t token=0;
++    if (!d->m3TxData(d->tgtBssid,0x888e,frame,(uint32_t)n,protect,nullptr,&token)) return false;
++    if (!confirm) return d->sessionCurrent();
++    const uint32_t slot=token&(kTxSlots-1),start=d->nowMs();
++    while (d->sessionCurrent() && (uint32_t)(d->nowMs()-start)<600) {
++        IOLockLock(d->txLock);
++        bool same=d->txGen[slot]==(token>>8),done=d->txCompletedToken[slot]==token;
++        bool success=done && d->txCompletion[slot]==0;
++        IOLockUnlock(d->txLock);
++        if (done) return success && d->sessionCurrent();
++        if (!same) return false;
++        d->m3Pump(1);
++    }
++    d->setProperty("wifi-rsn-error","EAPOL TX completion missing or session cancelled");
++    return false;
++}
++bool itlmt7922::rsnInstall(void *ctx,bool pairwise,uint8_t id,const uint8_t *key,uint64_t rsc) {
++    auto *d=(itlmt7922 *)ctx;
++    if (!d->sessionCurrent() || id>3) return false;
++    // Drop/defer ordinary data while the firmware's key epoch is changing.
++    __atomic_store_n(&d->rsnKeyUpdate,true,__ATOMIC_RELEASE);
++    int rc=d->m3Key(pairwise?1:19,pairwise,id,key,16);
++    if (!rc && d->sessionCurrent()) {
++        // Buffered MPDUs retain their old epoch and will be rejected after reorder.
++        d->rxKeys[pairwise?0:1+id].install(rsc);
++    } else rc=-5;
++    __atomic_store_n(&d->rsnKeyUpdate,false,__ATOMIC_RELEASE);
++    return rc==0;
++}
++void itlmt7922::rsnClear(void *ctx) {
++    auto *d=(itlmt7922 *)ctx;
++    __atomic_store_n(&d->rsnKeyUpdate,true,__ATOMIC_RELEASE);
++    d->m3linkUp=false;
++    d->m3dataOn=false;
++    for (auto &key:d->rxKeys) key.clear();
++    if (d->rsnHardwareActive && !d->shouldStop() && !d->firmwareFault) {
++        d->rsnHardwareActive=false;
++        if (d->associationReady) {
++            uint8_t leave[26]={}; leave[0]=0xc0;
++            memcpy(leave+4,d->tgtBssid,6); memcpy(leave+10,d->mac,6); memcpy(leave+16,d->tgtBssid,6); leave[24]=3;
++            d->m3Tx(leave,sizeof(leave),0,12);
++            d->m3Pump(20);
++        }
++        int rc=d->m3Key(1,true,0,nullptr,0);
++        if (!rc) rc=d->m3Key(19,false,0,nullptr,0); // DEL_KEY removes this station record's cipher set.
++        if (!rc) rc=d->m3Sta(255,false,0);
++        if (!rc) rc=d->m3Bss(false);
++        if (rc) d->recoverWanted=true;
++    }
++    d->associationReady=false;
++    bzero(d->m3ptk,sizeof(d->m3ptk));
++    d->m3cipher=0;
++    __atomic_store_n(&d->rsnKeyUpdate,false,__ATOMIC_RELEASE);
++}
++bool itlmt7922::rxAccept(uint64_t pn,uint8_t key,uint8_t tid,uint32_t epoch) {
++    if (!m3linkUp || key>4 || !rxKeys[key].accept(pn,tid,epoch)) {
++        stRxDrop++; stRxCipherReject++; return false;
++    }
++    return true;
++}
++void itlmt7922::rsnService() {
++    while (m3EapolNext() && rsn.state()!=ItlRsnSession::Failed) rsn.receive(m3eapol,m3eapolLen,nowMs());
++    rsn.tick(nowMs());
++    if (rsn.state()==ItlRsnSession::Failed || nowMs()-rsnLastPublish>=500) {
++        rsnLastPublish=nowMs(); char status[160];
++        snprintf(status,sizeof(status),"state=%u m1=%u m2=%u m3=%u group=%u rejected=%u epoch=%u",
++                 (unsigned)rsn.state(),rsn.m1Count,rsn.m2Count,rsn.m3Count,rsn.groupCount,rsn.rejects,activeAttempt);
++        setProperty("wifi-handshake",status);
++    }
++    if (rsn.state()==ItlRsnSession::Failed) {
++        setProperty("wifi-rsn-error",rsn.error()); m3lost=true;
++        strlcpy(m3lostWhy,rsn.error(),sizeof(m3lostWhy));
++    }
++}
++int itlmt7922::m3Handshake() {
++    ItlRsnOps ops={this,rsnSend,rsnInstall,rsnClear,rsnCancelled,rsnRandom};
++    rsn.start(ops,rsnSecurity,m3pmk,tgtBssid,mac,nowMs());
++    rsnLastPublish=nowMs()-500;
++    removeProperty("wifi-rsn-error"); m3wantEapol=true;
++    while (rsn.state()!=ItlRsnSession::Established && rsn.state()!=ItlRsnSession::Failed && sessionCurrent()) {
++        m3Pump(1); rsnService();
++    }
++    if (!sessionCurrent() || !rsn.authorized()) {
++        rsnClear(this); rsn.reset(); return -5;
++    }
++    return 0;
++}
++
++void itlmt7922::publishSnapshot() {
++    if (!snapshotLock) return;
++    ItlNativeStatus s={}; buildNativeStatus(&s);
++    IOLockLock(snapshotLock);
++    statusSnapshot=s;
++    IOLockUnlock(snapshotLock);
++}
++void itlmt7922::nativeStatus(ItlNativeStatus *s) {
++    IOLockLock(cmdLock);
++    IOLockLock(snapshotLock); *s=statusSnapshot; IOLockUnlock(snapshotLock);
++    // Mailbox changes invalidate the entire previous session, not just its state.
++    uint32_t sequence=__atomic_load_n(&njSeq,__ATOMIC_ACQUIRE);
++    if (s->joinSeq!=sequence) {
++        bzero(s,sizeof(*s)); s->version=1; s->joinSeq=sequence;
++        s->state=__atomic_load_n(&njState,__ATOMIC_ACQUIRE);
++        if (s->state==ITL_NATIVE_UP) s->state=ITL_NATIVE_CONNECTING;
++    }
++    s->scanBusy=__atomic_load_n(&scanBusy,__ATOMIC_ACQUIRE);
++    IOLockUnlock(cmdLock);
++}
++void itlmt7922::nativeNets(ItlNativeNets *out) {
++    if (!out->aps) return;
++    IOLockLock(snapshotLock);
++    out->version=1; out->count=snapshotCount<out->max?snapshotCount:out->max;
++    out->scanGen=snapshotScanGen;
++    for (uint32_t i=0;i<out->count;i++) out->aps[i]=apSnapshots[i];
++    IOLockUnlock(snapshotLock);
++    out->scanBusy=__atomic_load_n(&scanBusy,__ATOMIC_ACQUIRE);
++}
 diff --git a/src/itlmt7922_txrx.cpp b/src/itlmt7922_txrx.cpp
-index 35aea0d..e6175ba 100644
+index 35aea0d..1087a2e 100644
 --- a/src/itlmt7922_txrx.cpp
 +++ b/src/itlmt7922_txrx.cpp
-@@ -75,7 +75,9 @@ bool itlmt7922::m3Tx(const uint8_t *frame, uint32_t len, uint8_t type,
+@@ -73,9 +73,12 @@ bool itlmt7922::m3Tx(const uint8_t *frame, uint32_t len, uint8_t type,
+     options.wlan_index = 1; // To-DS multicast also uses the AP WCID.
+     options.fixed_rate = basicRate(tgtCh, apBasicCck, apBasic);
      options.sequence = (int16_t)o.sn;
++    txCompletion[slot]=0xff; if (o.token) *o.token=token;
      options.queue = o.rateAdapt && type == 2 ? 1 : o.qidx; // AC_BE -> LMAC AC01, independent of BA level.
      options.tid = o.tid & 7;
 -    options.spe_index = 24; // Connac2 duplicate WF0+WF1 fixed-rate path.
@@ -1184,7 +2597,7 @@ index 35aea0d..e6175ba 100644
      options.rate_adapt = o.rateAdapt;
      options.protect = o.protect;
      options.aggregate = o.aggr;
-@@ -102,7 +104,7 @@ bool itlmt7922::m3RxMgmt(const uint8_t *p, uint32_t len)
+@@ -102,7 +105,7 @@ bool itlmt7922::m3RxMgmt(const uint8_t *p, uint32_t len)
  {
      Mt7922RxView view = {};
      if (mt7922_parse_rx_normal(p, len, &view) != MT7922_RX_OK ||
@@ -1193,8 +2606,48 @@ index 35aea0d..e6175ba 100644
      const uint8_t *f = p + view.frame_offset;
      if (f[0] != m3wantFc || (f[1] & 0x47) || (f[22] & 15) || view.fragmented || memcmp(f + 4, mac, 6) ||
          memcmp(f + 10, tgtBssid, 6) || memcmp(f + 16, tgtBssid, 6)) return false;
+@@ -157,6 +160,13 @@ bool itlmt7922::m3RxData(const uint8_t *p, uint32_t len)
+         return true;
+     }
+     const uint8_t tid = data.tid;
++    if (data.protected_frame && (!rx.pn_valid || __atomic_load_n(&rsnKeyUpdate,__ATOMIC_ACQUIRE))) {
++        stRxDrop++; stRxCipherReject++; return true;
++    }
++    currentRxPn=rx.packet_number;
++    currentRxKey=group?(uint8_t)(1+rx.key_id):0;
++    currentRxTid=data.qos?tid:16;
++    currentRxEpoch=rxKeys[currentRxKey].epoch;
+     const uint16_t sn = data.sequence;
+     const bool reorder = data.qos && !group && rxBa[tid].r.active &&
+         (((data.qos_control >> 5) & 3) == 0 || ((data.qos_control >> 5) & 3) == 3);
+@@ -174,7 +184,16 @@ bool itlmt7922::m3RxData(const uint8_t *p, uint32_t len)
+     }
+     if (status == MT7922_DATA_NULL) {
+         amsduFlush();
+-        if (reorder) itl_reorder_rx(&rxBa[tid].r, sn, nullptr, 0, nowMs(), baDeliverCb, this);
++        // A protected QoS NULL consumes a PN, even though it has no Ethernet
++        // payload. Keep its replay check in sequence with buffered data.
++        if (data.protected_frame && m3linkUp) {
++            if (reorder) {
++                uint8_t metadata[16]={};
++                memcpy(metadata,&currentRxPn,8); metadata[8]=currentRxKey; metadata[9]=currentRxTid;
++                memcpy(metadata+12,&currentRxEpoch,4);
++                itl_reorder_rx(&rxBa[tid].r,sn,metadata,sizeof(metadata),nowMs(),baDeliverCb,this);
++            } else rxAccept(currentRxPn,currentRxKey,currentRxTid,currentRxEpoch);
++        }
+         return true;
+     }
+     // Protected ciphertext is rejected before LLC parsing; cleartext is only
+@@ -219,6 +238,7 @@ bool itlmt7922::m3RxData(const uint8_t *p, uint32_t len)
+     lastRxDataMs = nowMs();
+     const uint8_t *body = f + data.body_offset;
+     if (data.ethertype == 0x888e) {
++        if (group || (data.protected_frame && !rxAccept(currentRxPn,currentRxKey,currentRxTid,currentRxEpoch))) return true;
+         stRxEapol++;
+         if (m3wantEapol) m3Eapol(body, data.body_length);
+         return true;
 diff --git a/src/itlmt7922_uc.cpp b/src/itlmt7922_uc.cpp
-index 6738c4c..482f588 100644
+index 6738c4c..76a5f77 100644
 --- a/src/itlmt7922_uc.cpp
 +++ b/src/itlmt7922_uc.cpp
 @@ -113,7 +113,7 @@ IOReturn itlmt7922::newUserClient(task_t owningTask, void *securityID, UInt32 ty
@@ -1206,7 +2659,7 @@ index 6738c4c..482f588 100644
      IOLockLock(cmdLock);
      uint32_t now = nowMs();
      IOReturn r = kIOReturnSuccess;
-@@ -125,7 +125,7 @@ IOReturn itlmt7922::ucScan()
+@@ -125,10 +125,12 @@ IOReturn itlmt7922::ucScan()
  
  IOReturn itlmt7922::ucJoin(const char *ssid, const char *psk)
  {
@@ -1215,16 +2668,42 @@ index 6738c4c..482f588 100644
      IOLockLock(cmdLock);
      strlcpy(reqNet.ssid, ssid, sizeof(reqNet.ssid));
      strlcpy(reqNet.psk, psk, sizeof(reqNet.psk));
-@@ -139,7 +139,7 @@ IOReturn itlmt7922::ucJoin(const char *ssid, const char *psk)
++    reqNet.ssidLen=(uint8_t)strlen(reqNet.ssid);
++    reqNet.sequence=++njSeq;
+     reqNet.hasPmk = false;
+     reqNet.native = false;
+     bzero(reqNet.pmk, sizeof(reqNet.pmk));
+@@ -139,8 +141,10 @@ IOReturn itlmt7922::ucJoin(const char *ssid, const char *psk)
  
  IOReturn itlmt7922::ucDisconnect()
  {
 -    if (shouldStop() || !m3On || !cmdLock || !wstate[0]) return kIOReturnNotReady;
 +    if (shouldStop() || !cmdLock || !wstate[0]) return kIOReturnNotReady;
      IOLockLock(cmdLock);
++    ++njSeq;
++    njState=ITL_NATIVE_IDLE;
      cmdBits = (cmdBits & ~(uint32_t)CMD_JOIN) | (uint32_t)CMD_DISCONNECT;
      bzero(&reqNet, sizeof(reqNet));
-@@ -259,7 +259,7 @@ void itlmt7922::wifiScan()
+     IOLockUnlock(cmdLock);
+@@ -175,6 +179,7 @@ void itlmt7922::wifiState(const char *st, const char *err)
+ {
+     strlcpy(wstate, st, sizeof(wstate));
+     setProperty("wifi-state", st);
++    publishSnapshot();
+     if (err) setProperty("wifi-error", err);
+ }
+ 
+@@ -241,6 +246,9 @@ void itlmt7922::wifiNets()
+     setProperty("wifi-networks", arr);
+     arr->release();
+     setNum(this, "wifi-scan-gen", scanGen);
++    ItlNativeNets nets={}; nets.aps=apSnapshots; nets.max=ITL_NATIVE_AP_MAX;
++    IOLockLock(snapshotLock); buildNativeNets(&nets);
++    snapshotCount=nets.count; snapshotScanGen=nets.scanGen; IOLockUnlock(snapshotLock);
+ }
+ 
+ void itlmt7922::wifiScan()
+@@ -259,7 +267,7 @@ void itlmt7922::wifiScan()
  IOReturn itlmt7922::nativeScanReq(uint32_t *started)
  {
      *started = 0;
@@ -1233,28 +2712,42 @@ index 6738c4c..482f588 100644
      IOLockLock(cmdLock);
      uint32_t now = nowMs();
      if ((cmdBits & CMD_SCAN) || __atomic_load_n(&scanBusy, __ATOMIC_ACQUIRE)) *started = 1;      // join the queued / running scan
-@@ -276,14 +276,18 @@ IOReturn itlmt7922::nativeScanReq(uint32_t *started)
+@@ -274,19 +282,25 @@ IOReturn itlmt7922::nativeScanReq(uint32_t *started)
+     return kIOReturnSuccess;
+ }
  
- IOReturn itlmt7922::nativeJoin(const ItlNativeJoin *j)
+-IOReturn itlmt7922::nativeJoin(const ItlNativeJoin *j)
++IOReturn itlmt7922::nativeJoin(ItlNativeJoin *j)
  {
 -    if (shouldStop() || !m3On || !cmdLock || !wstate[0]) return kIOReturnNotReady;
 -    if (!j || j->version != 1 || !j->ssidLen || j->ssidLen > 32) return kIOReturnBadArgument;
 +    if (shouldStop() || !cmdLock || !wstate[0]) return kIOReturnNotReady;
-+    if (!j || j->version != 2 || !j->ssidLen || j->ssidLen > 32) return kIOReturnBadArgument;
++    if (!j || j->version != 3 || !j->ssidLen || j->ssidLen > 32 || j->rsnLength>257) return kIOReturnBadArgument;
 +    uint8_t addressBits = 0;
 +    for (unsigned i = 0; i < sizeof(j->bssid); i++) addressBits |= j->bssid[i];
 +    if (!addressBits || (j->bssid[0] & 1)) return kIOReturnBadArgument;
      IOLockLock(cmdLock);
      bzero(&reqNet, sizeof(reqNet));
      memcpy(reqNet.ssid, j->ssid, j->ssidLen);
++    reqNet.ssidLen=j->ssidLen; reqNet.channelSpec=j->channelSpec; reqNet.rsnLength=j->rsnLength;
++    memcpy(reqNet.rsn,j->rsn,j->rsnLength);
      memcpy(reqNet.pmk, j->pmk, sizeof(reqNet.pmk));
      reqNet.hasPmk = true;
      reqNet.native = true;
 +    memcpy(reqNet.bssid, j->bssid, sizeof(reqNet.bssid));
      njFail = 0;
      njState = ITL_NATIVE_CONNECTING;
-     njSeq++;
-@@ -315,6 +319,7 @@ void itlmt7922::nativeStatus(ItlNativeStatus *s)
+-    njSeq++;
++    j->sequence=++njSeq; reqNet.sequence=j->sequence;
+     cmdBits = (cmdBits & ~(uint32_t)CMD_DISCONNECT) | (uint32_t)CMD_JOIN;
+     IOLockUnlock(cmdLock);
+     return kIOReturnSuccess;
+@@ -311,16 +325,17 @@ static uint32_t failCode(const char *stage)
+     return 7;
+ }
+ 
+-void itlmt7922::nativeStatus(ItlNativeStatus *s)
++void itlmt7922::buildNativeStatus(ItlNativeStatus *s)
  {
      bzero(s, sizeof(*s));
      s->version = 1;
@@ -1262,15 +2755,76 @@ index 6738c4c..482f588 100644
      uint32_t st = njState;
      // a join in progress hides an old link that is still being torn down
      s->state = st == ITL_NATIVE_CONNECTING ? ITL_NATIVE_CONNECTING
-@@ -454,6 +459,7 @@ void itlmt7922::apSeen(const uint8_t *p, uint32_t len, uint32_t off, const char
+              : m3linkUp ? ITL_NATIVE_UP
+              : st == ITL_NATIVE_FAILED ? ITL_NATIVE_FAILED : ITL_NATIVE_IDLE;
+-    s->joinSeq = njSeq;
++    s->joinSeq = activeAttempt;
+     s->failStage = njFail;
+     s->scanGen = scanGen;
+     s->scanBusy = __atomic_load_n(&scanBusy, __ATOMIC_ACQUIRE);
+@@ -328,7 +343,7 @@ void itlmt7922::nativeStatus(ItlNativeStatus *s)
+     s->channel = tgtCh;
+     s->rssi = tgtRssi;
+     s->rateMbps = fastActive ? fastRate : 54;
+-    size_t n = strnlen(m3ssid, 32);
++    size_t n = m3ssidLength;
+     memcpy(s->ssid, m3ssid, n);
+     s->ssidLen = (uint8_t)n;
+     s->capability = tgtCap;
+@@ -369,7 +384,7 @@ void itlmt7922::nativeStatus(ItlNativeStatus *s)
+     }
+ }
+ 
+-void itlmt7922::nativeNets(ItlNativeNets *out)
++void itlmt7922::buildNativeNets(ItlNativeNets *out)
+ {
+     out->version = 1;
+     out->count = 0;
+@@ -386,7 +401,7 @@ void itlmt7922::nativeNets(ItlNativeNets *out)
+         o.channel = a.ch;
+         o.security = a.sec;
+         o.rssi = a.rssi;
+-        size_t n = strnlen(a.ssid, 32);
++        size_t n = a.ssidLen;
+         memcpy(o.ssid, a.ssid, n);
+         o.ssidLen = (uint8_t)n;
+         o.probeResponse = a.probe;
+@@ -446,14 +461,15 @@ static uint8_t secFromIes(const uint8_t *ie, const uint8_t *end, uint16_t cap)
+     return (cap & 0x10) ? ITL_SEC_WEP : ITL_SEC_OPEN;
+ }
+ 
+-void itlmt7922::apSeen(const uint8_t *p, uint32_t len, uint32_t off, const char *ssid, uint8_t ch)
++void itlmt7922::apSeen(const uint8_t *p, uint32_t len, uint32_t off, const char *ssid, uint8_t ch, uint8_t ssidLength)
+ {
+     const uint8_t *f = p + off;
+     const uint8_t *bssid = f + 16;
+     uint32_t now = nowMs();
      int8_t rssi = rxRssi(p, len, off);
-     if (m3linkUp && !memcmp(bssid, tgtBssid, 6)) {
+-    if (m3linkUp && !memcmp(bssid, tgtBssid, 6)) {
++    if (associationReady && f[0]==0x80 && !memcmp(bssid, tgtBssid, 6)) {
          tgtLastBcnMs = now ? now : 1;
 +        __atomic_add_fetch(&tgtBcnCount, 1, __ATOMIC_RELAXED);
          if (rssi) tgtRssi = tgtRssi ? (int8_t)((tgtRssi * 3 + rssi) / 4) : rssi;
      }
      int k = -1;
-@@ -507,7 +513,7 @@ static const char *failText(const char *stage)
+@@ -469,7 +485,7 @@ void itlmt7922::apSeen(const uint8_t *p, uint32_t len, uint32_t off, const char
+     }
+     itl_ap &a = aps[k];
+     a.ch = ch;
+-    if (ssid[0] || !a.ssid[0]) strlcpy(a.ssid, ssid, sizeof(a.ssid));       // a probe response names a hidden network
++    if (ssidLength || !a.ssidLen) { memcpy(a.ssid,ssid,ssidLength); a.ssid[ssidLength]=0; a.ssidLen=ssidLength; }       // a probe response names a hidden network
+     if (rssi) a.rssi = a.rssi ? (int8_t)((a.rssi + rssi) / 2) : rssi;
+     a.sec = secFromIes(f + 36, p + len, (uint16_t)(f[34] | (f[35] << 8)));
+     a.seenMs = now;
+@@ -496,6 +512,7 @@ int itlmt7922::loadPlistNets(Net *out, int max)
+         OSString *k = OSDynamicCast(OSString, getProperty(kp));
+         if (!s || !k || !s->getLength() || s->getLength() > 32 || k->getLength() < 8 || k->getLength() > 63) continue;
+         strlcpy(out[n].ssid, s->getCStringNoCopy(), sizeof(out[n].ssid));
++        out[n].ssidLen=(uint8_t)s->getLength(); out[n].sequence=njSeq;
+         strlcpy(out[n].psk, k->getCStringNoCopy(), sizeof(out[n].psk));
+         n++;
+     }
+@@ -507,30 +524,33 @@ static const char *failText(const char *stage)
      if (!strncmp(stage, "nocred", 6)) return "no network configured";
      if (!strncmp(stage, "scan", 4)) return "network not found";
      if (!strncmp(stage, "roc-fail", 8)) return "radio did not get the channel";
@@ -1279,7 +2833,19 @@ index 6738c4c..482f588 100644
      if (!strncmp(stage, "assoc-fail", 10)) return "the access point refused association";
      if (!strncmp(stage, "hs-fail", 7)) return "key handshake failed";
      return "connection failed";
-@@ -524,13 +530,15 @@ bool itlmt7922::apInRange(const char *ssid, uint32_t maxAgeMs)
+ }
+ 
+ // Seen by a scan within maxAgeMs (beacon or probe response). Hidden networks never are; see the probe-all round below.
+-bool itlmt7922::apInRange(const char *ssid, uint32_t maxAgeMs)
++bool itlmt7922::apInRange(const char *ssid, uint32_t maxAgeMs, uint8_t length)
+ {
++    if (!length) length=(uint8_t)strnlen(ssid,32);
+     uint32_t now = nowMs();
+-    for (int i = 0; i < nAps; i++) if (!strcmp(aps[i].ssid, ssid) && now - aps[i].seenMs <= maxAgeMs) return true;
++    for (int i=0;i<nAps;i++) if (aps[i].ssidLen==length && !memcmp(aps[i].ssid,ssid,length) && now-aps[i].seenMs<=maxAgeMs) return true;
+     return false;
+ }
+ 
  void itlmt7922::m3Supervise()
  {
      Net boot[4] = {};
@@ -1296,8 +2862,30 @@ index 6738c4c..482f588 100644
      m3log("supervisor: %d configured network(s)", nb);
      while (!shouldStop()) {
          if (firmwareFault) {
+@@ -558,10 +578,10 @@ void itlmt7922::m3Supervise()
+             // Another network, or a cap learned more than 10 min ago: start from mt7922_fast again. The cap survives a disconnect
+             // and a failed join of the same network (the Family retries from the start each time; every retry used to spend
+             // 30+ s walking down the same ladder again).
+-            if (strcmp(capSsid, j.ssid) != 0 || nowMs() - capMs > 600000) {
++            if (capSsidLength!=j.ssidLen || memcmp(capSsid,j.ssid,j.ssidLen) || nowMs() - capMs > 600000) {
+                 lvlCap = 255;
+                 capBand = 0;
+-                strlcpy(capSsid, j.ssid, sizeof(capSsid));
++                memcpy(capSsid,j.ssid,sizeof(capSsid)); capSsidLength=j.ssidLen;
+             }
+             user = j;
+             userNative = j.native;
+@@ -585,7 +605,7 @@ void itlmt7922::m3Supervise()
+             bootScan = false;
+             if (probeAll) lastProbeAll = now;
+             candN = 0;
+-            if (haveUser && (fresh || probeAll || apInRange(user.ssid, 60000))) candNets[candN++] = user;
++            if (haveUser && (fresh || probeAll || apInRange(user.ssid,60000,user.ssidLen))) candNets[candN++] = user;
+             for (int i = 0; i < nb && candN < 4; i++) {
+                 if (haveUser && !strcmp(boot[i].ssid, user.ssid)) continue;
+                 if (probeAll || apInRange(boot[i].ssid, 60000)) candNets[candN++] = boot[i];
 diff --git a/src/kmod_info.c b/src/kmod_info.c
-index 4a60c13..76368ce 100644
+index 4a60c13..cf4a543 100644
 --- a/src/kmod_info.c
 +++ b/src/kmod_info.c
 @@ -8,7 +8,7 @@ extern kern_return_t _start(kmod_info_t *ki, void *data);
@@ -1305,7 +2893,7 @@ index 4a60c13..76368ce 100644
  
  __attribute__((visibility("default")))
 -KMOD_EXPLICIT_DECL(local.experimental.itlmt7922, "0.2.2", _start, _stop)
-+KMOD_EXPLICIT_DECL(local.x1605va.MT7902WiFi, "0.2.2", _start, _stop)
++KMOD_EXPLICIT_DECL(local.x1605va.MT7902WiFi, "0.3.0", _start, _stop)
  __private_extern__ kmod_start_func_t *_realmain = 0;
  __private_extern__ kmod_stop_func_t *_antimain = 0;
  __private_extern__ int _kext_apple_cc = __APPLE_CC__;
@@ -1429,10 +3017,10 @@ index 4b86324..6414a68 100644
      return fails ? 1 : 0;
 diff --git a/tests/native_join_test.cpp b/tests/native_join_test.cpp
 new file mode 100644
-index 0000000..0bf2674
+index 0000000..333e321
 --- /dev/null
 +++ b/tests/native_join_test.cpp
-@@ -0,0 +1,77 @@
+@@ -0,0 +1,81 @@
 +// SPDX-License-Identifier: BSD-3-Clause-Clear
 +#include "../kexts/itlmt7925Native/mt7902_join.h"
 +#include <stdio.h>
@@ -1469,6 +3057,10 @@ index 0000000..0bf2674
 +    CHECK(request.ssidLength == 4 && !strcmp(request.ssid, "test"));
 +    CHECK(!memcmp(request.pmk, wire + 0x50, 32));
 +    CHECK(!memcmp(request.bssid, bssid, 6));
++    wire[0x21]=0; wire[0x22]='x';
++    CHECK(mt7902DecodeJoin(wire,sizeof(wire),&request)==Mt7902JoinResult::Ok);
++    CHECK(request.ssidLength==4 && request.ssid[1]==0 && request.ssid[2]=='x');
++    memcpy(wire+0x20,"test",4);
 +
 +    put32(wire + 0x48, 6);
 +    CHECK(mt7902DecodeJoin(wire, sizeof(wire), &request) == Mt7902JoinResult::Ok);
@@ -1510,6 +3102,127 @@ index 0000000..0bf2674
 +    CHECK(mt7902DecodeJoin(wire, sizeof(wire), nullptr) == Mt7902JoinResult::Invalid);
 +    puts("Native join decoder passed PMK/PMKSA, BSSID, authentication, length, and truncation checks.");
 +}
+diff --git a/tests/rsn_test.cpp b/tests/rsn_test.cpp
+new file mode 100644
+index 0000000..ae8fcb9
+--- /dev/null
++++ b/tests/rsn_test.cpp
+@@ -0,0 +1,69 @@
++// SPDX-License-Identifier: BSD-3-Clause-Clear
++#include "../src/itl_rsn.h"
++#include "../src/itl_replay.h"
++#include "../src/itl_ba.h"
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <vector>
++#include "rsn_vectors.h"
++#define CHECK(x) do { if (!(x)) { fprintf(stderr,"failed line %d: %s\n",__LINE__,#x); exit(1); } } while (0)
++static const uint8_t rsnIe[]={48,20,1,0,0,15,172,4,1,0,0,15,172,4,1,0,0,15,172,2,0,0};
++struct Rig {
++    ItlRsnSession session;
++    bool cancel=false,failM4=false,failGtk=false,deauthOnM4=false,cancelOnInstall=false;
++    unsigned pairwise=0,group=0,clears=0,replies=0,randoms=0;
++    uint64_t rsc=0;
++    std::vector<uint8_t> last;
++    static bool send(void *p,const uint8_t *frame,size_t n,bool protect,bool confirm) {
++        Rig &r=*(Rig*)p; r.last.assign(frame,frame+n);
++        uint16_t info=(uint16_t)(frame[5]<<8|frame[6]);
++        if(info==0x030a){CHECK(confirm);CHECK(!protect);r.replies++; if(r.deauthOnM4)r.cancel=true;return !r.failM4;}
++        if(info==0x0302){CHECK(confirm);CHECK(protect);r.replies++;}
++        return true;
++    }
++    static bool install(void *p,bool pt,uint8_t,const uint8_t *,uint64_t rsc) {
++        Rig &r=*(Rig*)p;if(pt)r.pairwise++;else r.group++;r.rsc=rsc;
++        if(r.cancelOnInstall)r.cancel=true;
++        return pt || !r.failGtk;
++    }
++    static void clear(void *p){((Rig*)p)->clears++;}
++    static bool cancelled(void *p){return ((Rig*)p)->cancel;}
++    static void random(void *p,uint8_t *out,size_t n){Rig &r=*(Rig*)p;memset(out,r.randoms++?0x55:0x22,n);}
++    Rig() {
++        ItlRsnSecurity selected={};CHECK(itl_rsn_select(rsnIe,sizeof(rsnIe),nullptr,0,&selected));
++        ItlRsnOps ops={this,send,install,clear,cancelled,random};uint8_t pmk[32],aa[]={2,3,4,5,6,7},spa[]={8,9,10,11,12,13};memset(pmk,0x11,32);
++        session.start(ops,selected,pmk,aa,spa,1);
++    }
++    void m1(){CHECK(session.receive(fx_m1,sizeof(fx_m1),2));}
++    void joined(){m1();CHECK(session.receive(fx_normal,sizeof(fx_normal),3));CHECK(session.authorized());}
++};
++struct OrderedReplay {
++    ItlReplayKey key;
++    unsigned delivered=0;
++    static void deliver(void *p,const uint8_t *bytes,uint32_t n){auto &r=*(OrderedReplay*)p;CHECK(n==8);uint64_t pn;memcpy(&pn,bytes,8);CHECK(r.key.accept(pn,0,r.key.epoch));r.delivered++;}
++};
++int main(){
++    {Rig r;r.joined();CHECK(r.pairwise==1&&r.group==1&&r.clears==0);}
++    struct Bad{const uint8_t *p;size_t n;};
++    const Bad bad[]={{fx_no_rsn,sizeof(fx_no_rsn)},{fx_changed_rsn,sizeof(fx_changed_rsn)},
++        {fx_no_secure,sizeof(fx_no_secure)},{fx_wrong_keylen,sizeof(fx_wrong_keylen)},
++        {fx_no_gtk,sizeof(fx_no_gtk)},{fx_bad_mic,sizeof(fx_bad_mic)},{fx_bad_nonce,sizeof(fx_bad_nonce)}};
++    for(const auto &b:bad){Rig r;r.m1();CHECK(!r.session.receive(b.p,b.n,3));CHECK(!r.session.authorized());CHECK(!r.pairwise&&!r.group);}
++    {Rig r;r.m1();CHECK(r.session.receive(fx_large,sizeof(fx_large),3));CHECK(r.session.authorized());}
++    {Rig r;r.joined();CHECK(r.session.receive(fx_normal,sizeof(fx_normal),4));CHECK(r.pairwise==1&&r.group==1&&r.replies==2);}
++    {Rig r;r.joined();CHECK(!r.session.receive(fx_m1,sizeof(fx_m1),4));CHECK(r.session.authorized());}
++    {Rig r;r.joined();CHECK(r.session.receive(fx_group,sizeof(fx_group),4));CHECK(r.group==2&&r.pairwise==1);CHECK(r.session.receive(fx_group,sizeof(fx_group),5));CHECK(r.group==2);CHECK(!r.session.receive(fx_oldGroup,sizeof(fx_oldGroup),6));CHECK(!r.session.receive(fx_groupBadMic,sizeof(fx_groupBadMic),6));}
++    {Rig r;r.joined();CHECK(r.session.receive(fx_rekey_m1,sizeof(fx_rekey_m1),10));CHECK(r.session.authorized());CHECK(r.session.receive(fx_rekey_normal,sizeof(fx_rekey_normal),11));CHECK(r.pairwise==2&&r.group==1);CHECK(r.session.receive(fx_rekey_normal,sizeof(fx_rekey_normal),12));CHECK(r.pairwise==2);}
++    {Rig r;r.m1();r.deauthOnM4=true;CHECK(!r.session.receive(fx_normal,sizeof(fx_normal),3));CHECK(!r.session.authorized()&&r.clears==1&&r.pairwise==0);}
++    {Rig r;r.m1();r.failM4=true;CHECK(!r.session.receive(fx_normal,sizeof(fx_normal),3));CHECK(r.clears==1&&!r.pairwise);}
++    {Rig r;r.m1();r.failGtk=true;CHECK(!r.session.receive(fx_normal,sizeof(fx_normal),3));CHECK(r.clears==1&&!r.session.authorized());}
++    {Rig r;r.m1();r.cancelOnInstall=true;CHECK(!r.session.receive(fx_normal,sizeof(fx_normal),3));CHECK(r.clears==1&&r.group==0);}
++    {Rig r;r.m1();r.cancel=true;r.session.tick(3);CHECK(r.session.state()==ItlRsnSession::Failed&&r.clears==1);}
++    {Rig r;r.m1();unsigned sent=r.session.m2Count;r.session.tick(1503);CHECK(r.session.m2Count==sent+1);r.session.tick(6003);CHECK(r.session.state()==ItlRsnSession::Failed);}
++    {Rig r;for(size_t n=0;n<99;n++)CHECK(!r.session.receive(fx_normal,n,2));CHECK(!r.session.authorized());}
++    {ItlRsnSecurity s={};uint8_t changed[sizeof(rsnIe)];memcpy(changed,rsnIe,sizeof(changed));changed[20]=0x40;CHECK(!itl_rsn_select(changed,sizeof(changed),nullptr,0,&s));changed[20]=0;changed[7]=2;CHECK(!itl_rsn_select(changed,sizeof(changed),nullptr,0,&s));CHECK(!itl_rsn_select(rsnIe,sizeof(rsnIe),changed,sizeof(changed),&s));}
++    {ItlReplayKey k;k.install(10);CHECK(!k.accept(10,0,k.epoch));CHECK(k.accept(11,0,k.epoch));CHECK(!k.accept(11,0,k.epoch));CHECK(k.accept(11,1,k.epoch));uint32_t old=k.epoch;k.install(20);CHECK(!k.accept(21,0,old));CHECK(k.accept(21,0,k.epoch));k.clear();CHECK(!k.accept(30,0,k.epoch));}
++    {OrderedReplay r;r.key.install(0);itl_reorder reorder={};itl_ba_slot slots[8]={};itl_reorder_start(&reorder,slots,10,8);uint64_t p11=11,p10=10;itl_reorder_rx(&reorder,11,(const uint8_t*)&p11,8,1,OrderedReplay::deliver,&r);CHECK(!r.delivered);itl_reorder_rx(&reorder,10,(const uint8_t*)&p10,8,2,OrderedReplay::deliver,&r);CHECK(r.delivered==2);}
++    puts("RSN session: validation, replay, retransmission, GTK/PTK rekey, rollback, cancellation, deadlines and PN-after-reorder passed.");
++}
+diff --git a/tests/rsn_vectors.h b/tests/rsn_vectors.h
+new file mode 100644
+index 0000000..d02a244
+--- /dev/null
++++ b/tests/rsn_vectors.h
+@@ -0,0 +1,27 @@
++// Synthetic vectors generated independently with Node crypto; no real network material.
++static const uint8_t fx_m1[] = {2,3,0,95,2,0,138,0,16,0,0,0,0,0,0,0,1,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
++static const uint8_t fx_normal[] = {2,3,0,151,2,19,202,0,16,0,0,0,0,0,0,0,2,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,26,244,117,38,6,248,141,50,144,240,208,44,66,150,38,122,0,56,10,41,214,160,59,124,150,177,189,237,189,165,58,60,10,210,115,40,171,239,179,249,144,151,172,252,100,162,164,247,11,43,170,126,39,211,157,209,34,112,66,179,242,48,228,127,56,46,130,79,146,35,222,33,168,210};
++static const uint8_t fx_no_rsn[] = {2,3,0,127,2,19,202,0,16,0,0,0,0,0,0,0,2,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,169,81,53,0,140,22,127,86,250,169,194,3,58,16,135,17,0,32,134,136,224,190,27,47,181,28,15,46,138,148,52,219,177,13,38,145,88,109,225,103,135,217,109,6,202,114,72,19,132,29};
++static const uint8_t fx_changed_rsn[] = {2,3,0,151,2,19,202,0,16,0,0,0,0,0,0,0,2,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,246,198,89,48,32,203,41,84,139,181,126,157,248,126,88,200,0,56,140,195,100,100,147,61,115,5,14,169,102,159,48,171,216,138,3,114,149,4,11,246,217,181,3,60,132,194,240,134,165,187,14,95,45,249,208,150,40,181,134,187,96,167,185,38,44,33,156,37,71,136,222,126,122,1};
++static const uint8_t fx_no_secure[] = {2,3,0,151,2,17,202,0,16,0,0,0,0,0,0,0,2,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,4,41,17,17,61,126,9,107,164,160,254,83,227,250,40,154,0,56,10,41,214,160,59,124,150,177,189,237,189,165,58,60,10,210,115,40,171,239,179,249,144,151,172,252,100,162,164,247,11,43,170,126,39,211,157,209,34,112,66,179,242,48,228,127,56,46,130,79,146,35,222,33,168,210};
++static const uint8_t fx_wrong_keylen[] = {2,3,0,151,2,19,202,0,32,0,0,0,0,0,0,0,2,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,41,173,76,203,254,211,16,178,188,183,103,254,162,203,152,128,0,56,10,41,214,160,59,124,150,177,189,237,189,165,58,60,10,210,115,40,171,239,179,249,144,151,172,252,100,162,164,247,11,43,170,126,39,211,157,209,34,112,66,179,242,48,228,127,56,46,130,79,146,35,222,33,168,210};
++static const uint8_t fx_no_gtk[] = {2,3,0,127,2,19,202,0,16,0,0,0,0,0,0,0,2,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,101,246,156,239,231,170,223,128,143,210,59,78,29,23,91,166,0,32,71,234,167,15,21,169,85,109,60,222,85,150,120,72,135,255,194,194,109,255,162,66,102,122,32,2,238,214,71,73,239,73};
++static const uint8_t fx_large[] = {2,3,1,183,2,19,202,0,16,0,0,0,0,0,0,0,2,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,151,77,43,71,35,144,29,188,46,161,83,34,158,247,55,79,1,88,2,181,145,173,90,62,243,187,134,51,143,127,177,237,170,92,97,229,247,177,151,73,8,45,23,4,181,220,200,222,26,153,38,63,234,47,245,132,35,154,205,208,218,223,106,20,114,146,80,230,195,160,221,47,13,250,70,192,97,88,74,96,113,130,244,244,229,64,10,95,120,105,134,145,39,3,117,205,42,131,231,245,131,55,218,219,214,230,112,155,215,64,2,143,40,119,222,81,35,240,50,28,11,24,34,78,103,164,17,6,173,222,247,230,235,233,194,126,241,15,113,139,80,64,21,254,37,210,67,87,191,6,189,7,250,96,45,41,244,239,49,45,150,46,196,89,34,232,170,197,217,50,48,109,80,238,157,47,111,27,238,74,254,204,58,221,240,39,154,129,106,62,179,202,128,172,240,180,71,47,47,119,215,11,181,49,162,117,75,249,203,64,214,231,174,222,22,86,153,234,150,225,190,238,9,218,190,99,13,32,117,177,255,118,125,111,131,33,135,206,209,104,11,153,153,241,111,217,245,77,139,178,131,219,190,164,162,5,2,159,141,48,242,86,26,66,191,142,219,113,10,147,42,154,40,244,63,70,72,5,105,247,143,40,25,98,107,219,246,121,117,236,108,228,237,170,25,228,250,213,151,164,54,2,113,132,228,217,98,68,54,253,85,56,142,235,4,162,195,102,83,64,144,228,238,149,222,16,87,60,240,17,236,195,98,196,173,129,203,147,6,185,29,241,54,49,156,102,48,45,40,129,59,163,253,124,215,112,140,184,186,213,2,230};
++static const uint8_t fx_bad_mic[] = {2,3,0,151,2,19,202,0,16,0,0,0,0,0,0,0,2,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,27,244,117,38,6,248,141,50,144,240,208,44,66,150,38,122,0,56,10,41,214,160,59,124,150,177,189,237,189,165,58,60,10,210,115,40,171,239,179,249,144,151,172,252,100,162,164,247,11,43,170,126,39,211,157,209,34,112,66,179,242,48,228,127,56,46,130,79,146,35,222,33,168,210};
++static const uint8_t fx_bad_nonce[] = {2,3,0,151,2,19,202,0,16,0,0,0,0,0,0,0,2,50,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,124,56,200,98,76,180,142,214,186,176,16,213,184,119,158,217,0,56,10,41,214,160,59,124,150,177,189,237,189,165,58,60,10,210,115,40,171,239,179,249,144,151,172,252,100,162,164,247,11,43,170,126,39,211,157,209,34,112,66,179,242,48,228,127,56,46,130,79,146,35,222,33,168,210};
++static const uint8_t fx_group[] = {2,3,0,127,2,19,130,0,16,0,0,0,0,0,0,0,3,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,38,164,2,95,248,123,198,166,108,235,142,241,24,104,27,195,0,32,254,128,13,131,156,149,99,246,34,139,23,135,214,0,200,63,49,159,204,225,232,231,215,204,185,136,107,21,81,247,27,109};
++static const uint8_t fx_groupBadMic[] = {2,3,0,127,2,19,130,0,16,0,0,0,0,0,0,0,3,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,39,164,2,95,248,123,198,166,108,235,142,241,24,104,27,195,0,32,254,128,13,131,156,149,99,246,34,139,23,135,214,0,200,63,49,159,204,225,232,231,215,204,185,136,107,21,81,247,27,109};
++static const uint8_t fx_oldGroup[] = {2,3,0,127,2,19,130,0,16,0,0,0,0,0,0,0,1,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,192,210,46,170,140,107,127,83,108,52,98,238,165,129,8,76,0,32,134,136,224,190,27,47,181,28,15,46,138,148,52,219,177,13,38,145,88,109,225,103,135,217,109,6,202,114,72,19,132,29};
++static const uint8_t fx_rekey_m1[] = {2,3,0,95,2,0,138,0,16,0,0,0,0,0,0,0,11,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
++static const uint8_t fx_rekey_normal[] = {2,3,0,151,2,19,202,0,16,0,0,0,0,0,0,0,12,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,67,147,143,247,94,223,192,252,116,222,27,23,108,98,46,12,0,56,101,254,207,168,91,22,238,251,83,96,250,39,253,99,67,151,81,126,244,242,130,139,24,52,110,116,51,111,206,83,161,203,112,80,119,103,22,124,161,122,160,138,115,227,107,27,116,213,17,65,98,1,21,106,113,135};
++static const uint8_t fx_rekey_no_rsn[] = {2,3,0,127,2,19,202,0,16,0,0,0,0,0,0,0,12,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,41,193,139,199,93,48,80,112,33,214,75,197,24,247,110,246,0,32,239,107,124,17,155,118,3,204,10,71,74,150,135,196,184,48,165,49,110,162,235,20,122,125,152,130,219,207,245,194,220,24};
++static const uint8_t fx_rekey_changed_rsn[] = {2,3,0,151,2,19,202,0,16,0,0,0,0,0,0,0,12,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,55,222,251,168,15,61,197,219,29,56,149,58,219,180,161,151,0,56,10,183,36,187,92,8,198,145,136,230,191,75,8,132,41,116,162,159,13,229,167,238,247,26,215,85,214,255,108,40,35,141,239,81,190,140,10,93,67,89,150,14,250,88,87,203,61,83,87,134,221,243,110,107,142,43};
++static const uint8_t fx_rekey_no_secure[] = {2,3,0,151,2,17,202,0,16,0,0,0,0,0,0,0,12,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,169,3,127,110,76,173,161,190,244,208,229,249,175,146,240,14,0,56,101,254,207,168,91,22,238,251,83,96,250,39,253,99,67,151,81,126,244,242,130,139,24,52,110,116,51,111,206,83,161,203,112,80,119,103,22,124,161,122,160,138,115,227,107,27,116,213,17,65,98,1,21,106,113,135};
++static const uint8_t fx_rekey_wrong_keylen[] = {2,3,0,151,2,19,202,0,32,0,0,0,0,0,0,0,12,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,108,208,43,127,127,30,66,192,186,56,171,193,117,64,54,151,0,56,101,254,207,168,91,22,238,251,83,96,250,39,253,99,67,151,81,126,244,242,130,139,24,52,110,116,51,111,206,83,161,203,112,80,119,103,22,124,161,122,160,138,115,227,107,27,116,213,17,65,98,1,21,106,113,135};
++static const uint8_t fx_rekey_no_gtk[] = {2,3,0,127,2,19,202,0,16,0,0,0,0,0,0,0,12,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,235,78,129,36,193,12,178,230,128,47,135,49,7,241,104,113,0,32,140,216,133,239,58,83,146,64,146,35,43,108,105,163,250,46,37,173,112,11,108,42,161,65,34,144,41,2,187,80,108,145};
++static const uint8_t fx_rekey_large[] = {2,3,1,183,2,19,202,0,16,0,0,0,0,0,0,0,12,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,173,99,60,50,32,93,145,94,150,156,77,220,103,127,70,232,1,88,210,148,218,109,175,4,126,116,246,3,130,68,105,34,15,238,45,34,11,211,107,81,230,232,237,191,226,31,142,164,138,175,141,42,3,23,167,186,100,69,182,179,169,111,53,89,38,194,242,115,209,233,113,93,241,190,73,32,52,232,160,187,241,147,198,224,43,153,38,149,120,52,31,170,24,21,167,106,59,8,52,173,187,91,172,37,75,40,181,249,253,25,197,235,116,146,68,181,160,145,208,138,103,65,22,26,221,237,76,143,23,148,239,162,26,174,62,45,246,214,12,227,69,55,213,240,86,218,103,51,132,124,38,232,52,111,227,75,226,125,227,154,200,1,141,218,102,137,18,211,249,45,182,50,234,42,237,4,17,178,25,229,43,126,109,26,85,216,123,208,70,226,224,118,136,169,37,242,150,182,124,11,104,236,22,9,137,35,178,163,10,33,146,208,132,104,128,52,46,139,35,68,92,95,170,102,8,93,230,111,24,169,205,83,147,189,218,209,60,27,142,161,35,78,197,48,70,6,219,203,135,77,12,58,135,209,101,85,27,188,179,20,20,61,95,34,113,246,169,44,236,145,239,204,48,133,78,206,124,175,66,149,35,9,214,44,133,2,81,85,47,58,237,23,120,128,58,201,108,35,197,159,81,29,141,20,60,75,228,240,30,198,7,115,76,81,138,219,198,65,72,19,151,168,17,140,90,54,13,53,158,248,15,47,55,116,130,190,154,234,221,203,81,7,237,15,255,221,138,149,177,21,83,63,85,170,222,119,208,52,229,56,117,16};
++static const uint8_t fx_rekey_bad_mic[] = {2,3,0,151,2,19,202,0,16,0,0,0,0,0,0,0,12,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,66,147,143,247,94,223,192,252,116,222,27,23,108,98,46,12,0,56,101,254,207,168,91,22,238,251,83,96,250,39,253,99,67,151,81,126,244,242,130,139,24,52,110,116,51,111,206,83,161,203,112,80,119,103,22,124,161,122,160,138,115,227,107,27,116,213,17,65,98,1,21,106,113,135};
++static const uint8_t fx_rekey_bad_nonce[] = {2,3,0,151,2,19,202,0,16,0,0,0,0,0,0,0,12,103,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,176,253,51,232,72,255,196,105,6,62,226,131,47,253,75,253,0,56,101,254,207,168,91,22,238,251,83,96,250,39,253,99,67,151,81,126,244,242,130,139,24,52,110,116,51,111,206,83,161,203,112,80,119,103,22,124,161,122,160,138,115,227,107,27,116,213,17,65,98,1,21,106,113,135};
++static const uint8_t fx_rekey_group[] = {2,3,0,127,2,19,130,0,16,0,0,0,0,0,0,0,13,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,172,240,251,173,19,146,30,15,131,94,74,62,62,170,124,215,0,32,178,226,52,100,75,148,4,41,116,199,208,3,31,36,198,10,224,43,124,23,111,43,8,74,144,208,0,117,236,199,246,81};
++static const uint8_t fx_rekey_groupBadMic[] = {2,3,0,127,2,19,130,0,16,0,0,0,0,0,0,0,13,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,173,240,251,173,19,146,30,15,131,94,74,62,62,170,124,215,0,32,178,226,52,100,75,148,4,41,116,199,208,3,31,36,198,10,224,43,124,23,111,43,8,74,144,208,0,117,236,199,246,81};
++static const uint8_t fx_rekey_oldGroup[] = {2,3,0,127,2,19,130,0,16,0,0,0,0,0,0,0,11,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,208,157,164,144,94,188,105,183,235,173,152,43,157,69,149,216,0,32,239,107,124,17,155,118,3,204,10,71,74,150,135,196,184,48,165,49,110,162,235,20,122,125,152,130,219,207,245,194,220,24};
+diff --git a/tests/run_protocol_tests.sh b/tests/run_protocol_tests.sh
+index 3e3bfd3..c9e0634 100644
+--- a/tests/run_protocol_tests.sh
++++ b/tests/run_protocol_tests.sh
+@@ -10,3 +10,8 @@ for kind in wpa caps ba; do
+         "$test_root/src/itl_${kind}.cpp" -o "$test_dir/${kind}_test"
+     "$test_dir/${kind}_test"
+ done
++"${CXX:-c++}" -std=c++17 -Wall -Wextra -Werror -UNDEBUG \
++    -fsanitize=address,undefined -fno-omit-frame-pointer -g \
++    "$test_root/tests/rsn_test.cpp" "$test_root/src/itl_rsn.cpp" \
++    "$test_root/src/itl_wpa.cpp" "$test_root/src/itl_ba.cpp" -o "$test_dir/rsn_test"
++"$test_dir/rsn_test"
 diff --git a/tests/test_data_tx_codec.cpp b/tests/test_data_tx_codec.cpp
 index 10e088a..21aa3fc 100644
 --- a/tests/test_data_tx_codec.cpp
@@ -1529,3 +3242,22 @@ index 10e088a..21aa3fc 100644
      for (unsigned i = 0; i < 8; i++) assert(u32(w + 4*i) == auth[i]);
      memset(f, 0, sizeof(f)); f[0] = 0x88; f[1] = 0x41; f[4] = 2;
      o.queue = 1; o.tid = 5; o.sequence = 0xabc; o.rate_adapt = 1; o.protect = 1; o.aggregate = 1;
+diff --git a/tests/test_rx_codec.cpp b/tests/test_rx_codec.cpp
+index efbb7cf..1ade42c 100644
+--- a/tests/test_rx_codec.cpp
++++ b/tests/test_rx_codec.cpp
+@@ -49,6 +49,14 @@ static void expect_status(const std::vector<uint8_t> &p, Mt7922RxStatus want)
+ 
+ static void test_golden_offsets()
+ {
++    // The first six group-1 bytes encode CCMP PN, independently of group 4.
++    {
++        auto p=packet((1u<<11)|(2u<<21),0,40);
++        for (unsigned i=0;i<6;i++) p[24+i]=(uint8_t)(i+1);
++        Mt7922RxView v={};
++        assert(mt7922_parse_rx_normal(p.data(),(uint32_t)p.size(),&v)==MT7922_RX_OK);
++        assert(v.pn_valid && v.packet_number==0x060504030201ULL && v.key_id==2);
++    }
+     // Fixed expected offsets are taken from mt7921/mac.c (6 word base RXD),
+     // deliberately including the 24-byte case missed by the original heuristic.
+     struct Fixture { uint32_t flags; unsigned pad; unsigned offset; };

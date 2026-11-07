@@ -49,6 +49,48 @@ The frontend matches on that property and gets the same station address the
 radio uses on air. Build checks cover the two kext bundles and PCI personality.
 Association, DHCP, and traffic on the MT7902 require a hardware run.
 
+## Protocol changes in 0.3.0
+
+Both kexts must be replaced together: 0.3.0 uses version 3 of the internal
+join/link bridge and rejects the older bridge. This is a larger protocol
+change, with a persistent WPA2-PSK/CCMP RSN session in the kernel.
+
+- The WCL request carries its RSN element, channel, exact SSID byte length and
+  immutable request sequence. The radio validates AP/request security before
+  association and uses one selected station RSN for association and M2.
+- M3 requires the matching AP RSN, CCMP key length, valid MIC/ANonce/replay,
+  Secure/Install bits and valid encrypted GTK data. Post-link M3 retransmission,
+  GTK rekey and PTK rekey remain active without reinstalling identical keys.
+- EAPOL replies use the actual TX token's firmware completion, rather than a
+  fixed delay. A cancelled attempt, AP leave, expired grant, failed TX or failed
+  key transaction cannot authorize the port. Cleanup removes keys and the AP
+  station/BSS state and clears the session's secret material.
+- RX retains CCMP PN/key metadata. Per-key/per-TID replay checks run after
+  reorder; A-MSDU subframes share one MPDU check. Key epochs invalidate buffered
+  packets from a previous key. Missing security metadata fails closed.
+- Native status/AP records are published as locked snapshots. Link callbacks
+  carry their request sequence. Connect completion waits for a real beacon
+  observed after successful association. The frontend advertises the same
+  22 non-DFS scan channels that the radio implements.
+- Association responses are checked for AID, capabilities, rates and bounded
+  IEs; fast-mode firmware capabilities come from that response.
+
+Regression tests exercise the persistent RSN session, malformed M3 rejection,
+large key frames, duplicate-message handling, GTK/PTK rekey, cancellation,
+rollback, deadlines, RX PN extraction and replay checks after reordering.
+These checks run with address/undefined-behavior sanitizers in macOS CI.
+They cannot establish RF transmission, firmware key acceptance, or successful
+connection on the physical MT7902. The saved 0.2.1 authentication failure
+preceded RSN; its hardware cause remains unverified.
+
+WPA3/SAE, enterprise authentication, PMF-required profiles, FT and DFS scanning
+remain unsupported. The missing-GTK rejection for the selected CCMP group
+profile is retained, consistent with the official Linux supplicant reference.
+
+The diagnostic collector also records `wifi-rsn-error`. `wifi-handshake` now
+contains persistent session state, message counts, group-rekey count, rejection
+count and attempt sequence. No PMK/PTK/GTK bytes are published.
+
 ## Authentication changes in 0.2.2
 
 The X1605VA's 0.2.1 report reached `auth-fail` on channel 11 after accepting
