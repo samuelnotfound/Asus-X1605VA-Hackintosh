@@ -1,6 +1,6 @@
 #include <IOKit/IOService.h>
 #include <IOKit/IOUserClient.h>
-#include <IOKit/IORegistryIterator.h>
+#include <IOKit/IORegistryEntry.h>
 #include <IOKit/acpi/IOACPIPlatformDevice.h>
 #include <libkern/c++/OSNumber.h>
 #include <libkern/c++/OSData.h>

@@ -1,0 +1,8 @@
+[submodule "Sources/AppleALC"]
+	path = Sources/AppleALC
+	url = https://github.com/samuelnotfound/AppleALC.git
+	branch = x1605va-layout26-only
+[submodule "Sources/VoodooI2C"]
+	path = Sources/VoodooI2C
+	url = https://github.com/samuelnotfound/VoodooI2C.git
+	branch = master
