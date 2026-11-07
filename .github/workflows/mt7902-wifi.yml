@@ -42,7 +42,7 @@ jobs:
           test "$(plutil -extract IOKitPersonalities.itlmt7925Wifi.IOProviderClass raw "$native/Contents/Info.plist")" = itlmt7922
           for bundle in "$kext" "$native"; do
             plutil -lint "$bundle/Contents/Info.plist"
-            test "$(plutil -extract CFBundleVersion raw "$bundle/Contents/Info.plist")" = 0.3.0
+            test "$(plutil -extract CFBundleVersion raw "$bundle/Contents/Info.plist")" = 0.3.1
           done
 
           staging="$RUNNER_TEMP/MT7902-Tahoe-native"

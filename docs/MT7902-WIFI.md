@@ -49,6 +49,33 @@ The frontend matches on that property and gets the same station address the
 radio uses on air. Build checks cover the two kext bundles and PCI personality.
 Association, DHCP, and traffic on the MT7902 require a hardware run.
 
+## Connectivity changes in 0.3.1
+
+The physical 0.3.0 report joined a phone hotspot and completed WPA2, but
+recorded repeated DHCP requests without incoming Ethernet traffic. A separate
+home AP failed before WPA2, during open-system authentication. Those are
+different failures; the report did not identify an exact firmware/RF cause.
+
+Version 0.3.1 negotiates HT/WMM by default for n-only routers, selects rates
+the AP actually advertises, and supplies a lowest supported Basic rate when
+the AP marks none. Firmware QoS now agrees with WMM negotiation. Ordinary
+payloads use AC_BE even on the legacy path. Broadcast DHCP sent To-DS keeps
+the AP as its unicast receiver and follows the negotiated QoS policy.
+Successful association preserves the beacon channel-operation fields if the
+response omits them.
+
+Connected scan requests return cached AP records; the driver's multi-second
+off-channel scans are not yet coordinated with RSN/data servicing. Beacons
+received on the current channel still refresh the cache. Scanning other
+channels requires disconnection, and connected roaming remains unsupported.
+
+New station tests cover OFDM-only/missing-Basic beacons, rate intersection,
+WMM validation, DHCP frame construction and the protected WCID/queue policy.
+The EFI collector adds the existing TX/RX rejection and delivery counters,
+DHCP/IP options and default route. No Wi-Fi passwords or key bytes are read.
+Build and protocol checks cannot prove that the physical card now passes
+DHCP or Internet traffic; that remains a hardware acceptance check.
+
 ## Protocol changes in 0.3.0
 
 Both kexts must be replaced together: 0.3.0 uses version 3 of the internal

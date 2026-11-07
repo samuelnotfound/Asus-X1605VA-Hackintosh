@@ -34,7 +34,7 @@ index 31f1b95..a8c4b2a 100644
      int16_t chain_rssi_dbm[4];
      uint8_t phy_valid;
 diff --git a/kexts/itlmt7925Native/Info.plist b/kexts/itlmt7925Native/Info.plist
-index 8e89979..8d9b8eb 100644
+index 8e89979..4064a81 100644
 --- a/kexts/itlmt7925Native/Info.plist
 +++ b/kexts/itlmt7925Native/Info.plist
 @@ -3,26 +3,27 @@
@@ -51,8 +51,8 @@ index 8e89979..8d9b8eb 100644
  	<key>CFBundlePackageType</key><string>KEXT</string>
 -	<key>CFBundleShortVersionString</key><string>0.1.0</string>
 -	<key>CFBundleVersion</key><string>0.1.0</string>
-+	<key>CFBundleShortVersionString</key><string>0.3.0</string>
-+	<key>CFBundleVersion</key><string>0.3.0</string>
++	<key>CFBundleShortVersionString</key><string>0.3.1</string>
++	<key>CFBundleVersion</key><string>0.3.1</string>
  	<key>IOKitPersonalities</key>
  	<dict>
  		<key>itlmt7925Wifi</key>
@@ -69,7 +69,7 @@ index 8e89979..8d9b8eb 100644
  	<key>OSBundleLibraries</key>
  	<dict>
 -		<key>com.itlmt7925.kext</key><string>0.1.0</string>
-+		<key>local.x1605va.MT7902WiFi</key><string>0.3.0</string>
++		<key>local.x1605va.MT7902WiFi</key><string>0.3.1</string>
  		<key>com.apple.iokit.IO80211Family</key><string>1200.13.1</string>
  		<key>com.apple.iokit.IOSkywalkFamily</key><string>1.0</string>
  		<key>com.apple.driver.corecapture</key><string>1.0.4</string>
@@ -391,7 +391,7 @@ index a6935c4..864a460 100644
      // ivars->parentInterface for it (it logs a failure at IO80211SkywalkInterface.cpp:0x1f8 otherwise), createSkywalkInterface only
      // makes it from a bus flag and passes the parent as its 4th argument. itlmt_native_role=2 keeps the old path for comparison.
 diff --git a/kexts/itlmt7925Native/kmod_info.c b/kexts/itlmt7925Native/kmod_info.c
-index 5d9d2da..11c68c3 100644
+index 5d9d2da..d27f0a1 100644
 --- a/kexts/itlmt7925Native/kmod_info.c
 +++ b/kexts/itlmt7925Native/kmod_info.c
 @@ -8,7 +8,7 @@ extern kern_return_t _start(kmod_info_t *ki, void *data);
@@ -399,7 +399,7 @@ index 5d9d2da..11c68c3 100644
  
  __attribute__((visibility("default")))
 -KMOD_EXPLICIT_DECL(com.itlmt7925.native, "0.1.0", _start, _stop)
-+KMOD_EXPLICIT_DECL(local.x1605va.MT7902Native, "0.3.0", _start, _stop)
++KMOD_EXPLICIT_DECL(local.x1605va.MT7902Native, "0.3.1", _start, _stop)
  __private_extern__ kmod_start_func_t *_realmain = 0;
  __private_extern__ kmod_stop_func_t *_antimain = 0;
  __private_extern__ int _kext_apple_cc = __APPLE_CC__;
@@ -525,7 +525,7 @@ index 168a8ae..334d50e 100644
 +plutil -lint "$native/Contents/Info.plist"
 +file "$native/Contents/MacOS/itlmt7902Native"
 diff --git a/src/Info.plist b/src/Info.plist
-index 5e4e70a..094bb9a 100644
+index 5e4e70a..4fabc80 100644
 --- a/src/Info.plist
 +++ b/src/Info.plist
 @@ -7,7 +7,7 @@
@@ -542,10 +542,10 @@ index 5e4e70a..094bb9a 100644
  	<string>KEXT</string>
  	<key>CFBundleShortVersionString</key>
 -	<string>0.2.2</string>
-+	<string>0.3.0</string>
++	<string>0.3.1</string>
  	<key>CFBundleVersion</key>
 -	<string>0.2.2</string>
-+	<string>0.3.0</string>
++	<string>0.3.1</string>
  	<key>IOKitPersonalities</key>
  	<dict>
  		<key>itlmt7922</key>
@@ -582,10 +582,19 @@ index 925fa40..c2e5bca 100644
          ".globl _itl_fw_ram_end\n_itl_fw_ram_end:\n"
          ".byte 0\n.text\n");
 diff --git a/src/itl_caps.cpp b/src/itl_caps.cpp
-index ea766d5..78572ff 100644
+index ea766d5..870a70a 100644
 --- a/src/itl_caps.cpp
 +++ b/src/itl_caps.cpp
-@@ -108,7 +108,7 @@ size_t itl_caps_build_ht(uint8_t *o)
+@@ -16,6 +16,8 @@ void itl_caps_parse(const uint8_t *ies, size_t len, itl_ap_caps *c)
+     while (ie + 2 <= end && ie + 2 + ie[1] <= end) {
+         uint8_t id = ie[0], l = ie[1];
+         const uint8_t *d = ie + 2;
++        if (id == 221 && l >= 7 && d[0] == 0 && d[1] == 0x50 && d[2] == 0xf2 &&
++            d[3] == 2 && (d[4] == 0 || (d[4] == 1 && l >= 24)) && d[5] == 1) c->wmm = true;
+         if (id == 45 && l >= 26) {                       // HT Capabilities: info(2) A-MPDU(1) MCS set(16) ext(2) txbf(4) asel(1)
+             c->ht = true;
+             c->htCap = le16(d);
+@@ -108,7 +110,7 @@ size_t itl_caps_build_ht(uint8_t *o)
      uint16_t cap = 0x0001 | 0x0002 | 0x000c | 0x0020 | 0x0040 | 0x0100;
      o[2] = (uint8_t)cap; o[3] = (uint8_t)(cap >> 8);
      o[4] = 3 | (5 << 2);                                 // max A-MPDU 65535 bytes, min spacing 4 us
@@ -594,7 +603,7 @@ index ea766d5..78572ff 100644
      return 28;
  }
  
-@@ -119,8 +119,8 @@ size_t itl_caps_build_vht(uint8_t *o, bool allow160)
+@@ -119,8 +121,8 @@ size_t itl_caps_build_vht(uint8_t *o, bool allow160)
      // max MPDU 3895 | 160 MHz (or 80 MHz only) | RX LDPC | SGI 80 | SGI 160 | RX STBC 1 stream | max A-MPDU exponent 7
      uint32_t cap = (0u << 0) | ((allow160 ? 1u : 0u) << 2) | (1u << 4) | (1u << 5) | ((allow160 ? 1u : 0u) << 6) | (1u << 8) | (7u << 23);
      for (int i = 0; i < 4; i++) o[2 + i] = (uint8_t)(cap >> (8 * i));
@@ -606,7 +615,7 @@ index ea766d5..78572ff 100644
      o[8] = (uint8_t)hi;  o[9] = (uint8_t)(hi >> 8);
      o[10] = (uint8_t)map; o[11] = (uint8_t)(map >> 8);
 diff --git a/src/itl_caps.h b/src/itl_caps.h
-index 485c9b6..5e61376 100644
+index 485c9b6..3c98fc0 100644
 --- a/src/itl_caps.h
 +++ b/src/itl_caps.h
 @@ -4,7 +4,7 @@
@@ -618,7 +627,7 @@ index 485c9b6..5e61376 100644
  // HE (802.11ax) without beamforming / MU / OFDMA-specific features, no STBC TX. EHT (802.11be) and 6 GHz are not handled.
  #ifndef ITL_CAPS_H
  #define ITL_CAPS_H
-@@ -12,7 +12,7 @@
+@@ -12,10 +12,11 @@
  #include <stdint.h>
  #include <stddef.h>
  
@@ -627,7 +636,11 @@ index 485c9b6..5e61376 100644
  
  // Capabilities of the AP, parsed from the IEs of its beacon / probe response (the frame body after the fixed fields).
  struct itl_ap_caps {
-@@ -62,8 +62,8 @@ size_t itl_caps_build_ht(uint8_t *out);
++    bool wmm;                 // WMM information/parameter element with version 1
+     bool ht;                  // HT Capabilities element (id 45) present
+     uint16_t htCap;           // HT Capabilities Info
+     uint8_t ampduParm;        // A-MPDU parameters: bits 0-1 max length exponent, bits 2-4 min MPDU start spacing
+@@ -62,8 +63,8 @@ size_t itl_caps_build_ht(uint8_t *out);
  size_t itl_caps_build_vht(uint8_t *out, bool allow160);
  size_t itl_caps_build_he(uint8_t *out, bool band5g, bool allow160);
  
@@ -948,6 +961,71 @@ index 0000000..2030985
 +    bool decodeData(const itl_eapol_key &, const itl_ptk &, bool pairwise,
 +                    uint8_t key[16], uint8_t *keyId);
 +};
+diff --git a/src/itl_station.h b/src/itl_station.h
+new file mode 100644
+index 0000000..2d901e6
+--- /dev/null
++++ b/src/itl_station.h
+@@ -0,0 +1,59 @@
++// SPDX-License-Identifier: BSD-3-Clause-Clear
++// Shared, kernel-independent station policy. Rates are in 500 kbit/s units.
++#pragma once
++#include <stdint.h>
++#include <stddef.h>
++#include <string.h>
++struct ItlLegacyRates { uint8_t cck=0,ofdm=0,basicCck=0,basicOfdm=0; bool inferred=false; };
++inline bool itl_station_rates(const uint8_t *ies,size_t length,bool band2,ItlLegacyRates *out) {
++    *out={};
++    static const uint8_t cck[]={2,4,11,22},ofdm[]={12,18,24,36,48,72,96,108};
++    for(size_t off=0;off<length;) {
++        if(length-off<2 || ies[off+1]+2u>length-off) return false;
++        unsigned id=ies[off],n=ies[off+1];
++        if(id==1 || id==50) for(unsigned j=0;j<n;j++) {
++            uint8_t rate=ies[off+2+j],v=rate&127;
++            for(unsigned k=0;band2 && k<4;k++) if(v==cck[k]) {out->cck|=1u<<k;if(rate&128)out->basicCck|=1u<<k;}
++            for(unsigned k=0;k<8;k++) if(v==ofdm[k]) {out->ofdm|=1u<<k;if(rate&128)out->basicOfdm|=1u<<k;}
++        }
++        off+=2+n;
++    }
++    if(!out->cck && !out->ofdm) return false;
++    if(!out->basicCck && !out->basicOfdm) {
++        // Some HT-only APs omit every Basic bit. Never send a zero basic mask
++        // to firmware, or invent a CCK rate that the AP did not advertise.
++        out->inferred=true;
++        if(out->cck)out->basicCck=(uint8_t)(out->cck & -out->cck);
++        else out->basicOfdm=(uint8_t)(out->ofdm & -out->ofdm);
++    }
++    return true;
++}
++inline size_t itl_station_rate_ies(uint8_t *out,const ItlLegacyRates &r) {
++    static const uint8_t cck[]={2,4,11,22},ofdm[]={12,18,24,36,48,72,96,108};
++    uint8_t rates[12]; unsigned n=0;
++    for(unsigned i=0;i<4;i++)if(r.cck&(1u<<i))rates[n++]=cck[i]|((r.basicCck&(1u<<i))?128:0);
++    for(unsigned i=0;i<8;i++)if(r.ofdm&(1u<<i))rates[n++]=ofdm[i]|((r.basicOfdm&(1u<<i))?128:0);
++    if(!n)return 0;
++    unsigned first=n<8?n:8;out[0]=1;out[1]=(uint8_t)first;
++    for(unsigned i=0;i<first;i++)out[2+i]=rates[i];
++    if(n<=8)return 2+n;
++    out[10]=50;out[11]=(uint8_t)(n-8);for(unsigned i=8;i<n;i++)out[4+i]=rates[i];return 4+n;
++}
++struct ItlDataTxPlan { bool qos,rateAdapt; uint8_t queue; };
++inline ItlDataTxPlan itl_station_data_tx(bool negotiatedWmm,bool ht,bool linked,uint16_t type) {
++    const bool ordinary=type!=0x888e;
++    // To-DS broadcast DHCP still has the AP as its unicast receiver. The
++    // ordinary AC_BE queue applies to legacy data as well as HT data.
++    return {ordinary&&negotiatedWmm,ordinary&&ht&&linked,(uint8_t)(ordinary?1:16)};
++}
++inline size_t itl_station_to_ds(uint8_t *out,size_t capacity,const uint8_t ap[6],const uint8_t station[6],
++                               const uint8_t destination[6],uint16_t type,const uint8_t *payload,size_t length,
++                               bool qos,bool protect) {
++    size_t header=qos?26:24,total=header+8+length;
++    if(length>1536 || total>capacity || (length && !payload))return 0;
++    memset(out,0,header);out[0]=qos?0x88:0x08;out[1]=protect?0x41:0x01;
++    memcpy(out+4,ap,6);memcpy(out+10,station,6);memcpy(out+16,destination,6);
++    static const uint8_t snap[]={0xaa,0xaa,3,0,0,0};memcpy(out+header,snap,6);
++    out[header+6]=(uint8_t)(type>>8);out[header+7]=(uint8_t)type;
++    if(length)memcpy(out+header+8,payload,length);return total;
++}
 diff --git a/src/itl_wpa.cpp b/src/itl_wpa.cpp
 index 45d3eb9..63c2d8a 100644
 --- a/src/itl_wpa.cpp
@@ -971,7 +1049,7 @@ index 45d3eb9..63c2d8a 100644
      memcpy(tmp, frame, len);
      memset(tmp + 81, 0, 16);
 diff --git a/src/itlmt7922.cpp b/src/itlmt7922.cpp
-index 8f49d91..7ddc107 100644
+index 8f49d91..7fa61ee 100644
 --- a/src/itlmt7922.cpp
 +++ b/src/itlmt7922.cpp
 @@ -62,12 +62,12 @@ void itlmt7922::note(const char *fmt, uint32_t a, uint32_t b, uint32_t c)
@@ -1026,7 +1104,7 @@ index 8f49d91..7ddc107 100644
 -    setProperty("wifi-state", "off");                         // until stage 3 establishes a link
 +    snapshotLock = IOLockAlloc();
 +    if (!workerLock || !txLock || !cmdLock || !nativeLock || !snapshotLock) return false;
-+    setProperty("port-version","0.3.0-mt7902-native");
++    setProperty("port-version","0.3.1-mt7902-native");
 +    setProperty("wifi-state", "initializing");
  
      pci = OSDynamicCast(IOPCIDevice, provider);
@@ -1436,7 +1514,7 @@ index 113ea39..6b0b8e8 100644
          IOLockUnlock(nativeLock);
          IOLog("itlmt7922 native: sink bound\n");
 diff --git a/src/itlmt7922_m1.cpp b/src/itlmt7922_m1.cpp
-index 4ebad09..4206243 100644
+index 4ebad09..8ea6185 100644
 --- a/src/itlmt7922_m1.cpp
 +++ b/src/itlmt7922_m1.cpp
 @@ -158,12 +158,13 @@ void itlmt7922::dmaDisable()
@@ -1582,7 +1660,7 @@ index 4ebad09..4206243 100644
 -    if (PE_parse_boot_argn("mt7922_fast", &fast, sizeof(fast))) {
 +    if (PE_parse_boot_argn("mt7902_amsdu", &amsduOn, sizeof(amsduOn)) && amsduOn) noAmsdu = false;
 +    if (PE_parse_boot_argn("mt7902_stat", &statS, sizeof(statS)) && statS >= 1 && statS <= 60) statSecs = statS;
-+    m3fast=false; fastLevel=0;
++    m3fast=true; fastLevel=2; // negotiate HT/WMM without requiring an EFI boot argument
 +    uint32_t fast = 0;
 +    if (PE_parse_boot_argn("mt7902_fast", &fast, sizeof(fast))) {
          m3fast = fast != 0;
@@ -1755,10 +1833,18 @@ index 4ddef55..118135d 100644
      uint8_t dev[16]={}; put16(dev+4,0); put16(dev+6,12); dev[8]=1; memcpy(dev+10,mac,6);
      rc=uniSend(1,dev,sizeof(dev),false,event,sizeof(event),&length,3000);
 diff --git a/src/itlmt7922_m3.cpp b/src/itlmt7922_m3.cpp
-index ad11950..310b97f 100644
+index ad11950..05de20f 100644
 --- a/src/itlmt7922_m3.cpp
 +++ b/src/itlmt7922_m3.cpp
-@@ -53,9 +53,10 @@ void itlmt7922::m3Publish(const char *stage)
+@@ -10,6 +10,7 @@
+ #include "itlmt7922.hpp"
+ #include "mt7922_regs.h"
+ #include "itl_wpa.h"
++#include "itl_station.h"
+ #include "../codec/mt7922_data_codec.h"
+ 
+ #include <string.h>
+@@ -53,9 +54,10 @@ void itlmt7922::m3Publish(const char *stage)
  }
  
  // Called by rxParseFrame for every beacon / probe response. `frame` points at the 802.11 header.
@@ -1771,7 +1857,7 @@ index ad11950..310b97f 100644
      // prefer 5 GHz; otherwise keep the first one seen
      if (tgtFound && !(ch > 14 && tgtCh <= 14)) return;
      tgtFound = true;
-@@ -152,13 +153,15 @@ void itlmt7922::m3Event(const uint8_t *ev, uint32_t len)
+@@ -152,13 +154,15 @@ void itlmt7922::m3Event(const uint8_t *ev, uint32_t len)
          for (uint32_t i=0;i<n;i++) text[i] = ev[46+i]>=32 && ev[46+i]<127 ? (char)ev[46+i] : '.';
          text[n]=0; m3log("fw: %s", text);
      }
@@ -1789,16 +1875,41 @@ index ad11950..310b97f 100644
          m3log("roc grant bss=%u tok=%u status=%u", ev[44], ev[45], ev[46]);
      }
  }
-@@ -181,7 +184,7 @@ void itlmt7922::m3ParseAp()
-                 for (int k = 0; k < 4; k++)
-                     if ((ie[2 + i] & 0x7f) == rcck[k]) { apCck |= 1u << k; if (ie[2 + i] & 0x80) apBasicCck |= 1u << k; }
-         } else if (id == 48 && l <= sizeof(apRsn) - 2) {
+@@ -166,25 +170,14 @@ void itlmt7922::m3Event(const uint8_t *ev, uint32_t len)
+ // Rates / RSN of the target AP from the captured beacon IEs.
+ void itlmt7922::m3ParseAp()
+ {
+-    static const uint8_t r5g[8] = {12, 18, 24, 36, 48, 72, 96, 108};    // 500 kb/s units
+-    static const uint8_t rcck[4] = {2, 4, 11, 22};
+-    const uint8_t *ie = tgtIe, *end = tgtIe + tgtIeLen;
+-    apSupp = apBasic = apCck = apBasicCck = 0;
+-    apRsnLen = 0;
+-    while (ie + 2 <= end && ie + 2 + ie[1] <= end) {
+-        uint8_t id = ie[0], l = ie[1];
+-        if (id == 1 || id == 50) {
+-            for (int i = 0; i < l; i++)
+-                for (int k = 0; k < 8; k++)
+-                    if ((ie[2 + i] & 0x7f) == r5g[k]) { apSupp |= 1u << k; if (ie[2 + i] & 0x80) apBasic |= 1u << k; }
+-            for (int i = 0; i < l; i++)
+-                for (int k = 0; k < 4; k++)
+-                    if ((ie[2 + i] & 0x7f) == rcck[k]) { apCck |= 1u << k; if (ie[2 + i] & 0x80) apBasicCck |= 1u << k; }
+-        } else if (id == 48 && l <= sizeof(apRsn) - 2) {
 -            apRsnLen = (uint8_t)(l + 2);
-+            apRsnLen = (uint16_t)(l + 2);
-             memcpy(apRsn, ie, apRsnLen);
-         }
-         ie += 2 + l;
-@@ -200,20 +203,17 @@ void itlmt7922::m3ParseAp()
+-            memcpy(apRsn, ie, apRsnLen);
+-        }
+-        ie += 2 + l;
++    ItlLegacyRates rates={};
++    bool valid=itl_station_rates(tgtIe,tgtIeLen,tgtCh<=14,&rates);
++    apSupp=rates.ofdm; apBasic=rates.basicOfdm; apCck=rates.cck; apBasicCck=rates.basicCck;
++    if (!valid) apSupp=apBasic=apCck=apBasicCck=0;
++    if (rates.inferred) m3log("AP omitted basic rates: selected lowest supported rate");
++    apRsnLen=0;
++    for (const uint8_t *ie=tgtIe,*end=tgtIe+tgtIeLen;ie+2<=end && ie+2+ie[1]<=end;ie+=2+ie[1]) {
++        if (ie[0]==48 && ie[1]<=sizeof(apRsn)-2) {apRsnLen=ie[1]+2;memcpy(apRsn,ie,apRsnLen);}
+     }
+     m3log("ap rates supp=%02x basic=%02x cck=%x/%x rsn=%u", apSupp, apBasic, apCck, apBasicCck, apRsnLen);
+     m3FastPlan();
+@@ -200,30 +193,27 @@ void itlmt7922::m3ParseAp()
  // Features at `level` for the current AP: bit 0 A-MSDU, bit 1 HE, bit 2 160 MHz channel. Used to skip levels that change nothing.
  uint8_t itlmt7922::fastSig(uint8_t level)
  {
@@ -1818,11 +1929,15 @@ index ad11950..310b97f 100644
      txPool = true;
      fastHe = fastAmsdu = fastAllow160 = false;
 -    if (lvl > 5) lvl = 5;
+-    if (!m3fast || lvl < 1) return;
 +    if (lvl > 4) lvl = 4;
-     if (!m3fast || lvl < 1) return;
      itl_caps_parse(tgtIe, tgtIeLen, &apCaps);
++    if (!m3fast || lvl < 1) return;
      bool g2 = tgtCh <= 14;
-@@ -223,7 +223,7 @@ void itlmt7922::m3FastPlan()
+     if (g2) { apCaps.vht = false; apCaps.vhtOp = false; }
+-    if (!apCaps.ht) {
++    if (!apCaps.ht || !apCaps.wmm) {
+         m3log("fast: off (ch=%u ht=%d)", tgtCh, apCaps.ht ? 1 : 0);
          baLog("fast off ch=%u ht=%d", tgtCh, apCaps.ht ? 1 : 0);
          return;
      }
@@ -1831,7 +1946,7 @@ index ad11950..310b97f 100644
      fastAllow160 = fastBw == 3;
      fastAmsdu = lvl >= 4 && !noAmsdu;
      fastHe = false; // HE ABI is not enabled in the first Connac2 full port.
-@@ -291,7 +291,7 @@ int itlmt7922::m3HwPrep()
+@@ -291,7 +281,7 @@ int itlmt7922::m3HwPrep()
      for (unsigned i=0;i<sizeof(ch5)/sizeof(ch5[0]);i++,w+=8) put16(w,ch5[i]);
      int rc=mcuSend(CE|0x0f,domain,(size_t)(w-domain),false,nullptr);
      if (rc) return rc;
@@ -1840,7 +1955,15 @@ index ad11950..310b97f 100644
      rx[10]=rx[0]>14?1:0;
      rc=mcuSend(0x4eed,rx,sizeof(rx),true,nullptr);
      if (rc) return rc;
-@@ -343,7 +343,7 @@ int itlmt7922::m3Bss(bool enable)
+@@ -336,14 +326,14 @@ int itlmt7922::m3Bss(bool enable)
+     uint16_t phy=g2?3:8;
+     if (fastActive) { b[25]|=g2?0x08:(0x10|(apCaps.vht?0x20:0)); phy|=0x10|(apCaps.vht?0x20:0); }
+     put16(b+26,M3_BMC_WCID); put16(b+28,phy);
+-    uint8_t *q=m.tlv(15,8); q[4]=1;
++    uint8_t *q=m.tlv(15,8); q[4]=fastActive && apCaps.wmm;
+     m.b[2]=m.b[3]=0; // BSS header has reserved bytes, unlike STA's TLV count.
+     int rc=m3Cmd(UNI_BSS_INFO_UPDATE,m.b,m.n,enable?"bss(enable)":"bss(add)");
+     if (rc) return rc;
      // Connac2 RLM uses short_st@10, ht_op_info@11, sco@12, Linux band@13.
      m.init(4); m.b[0]=M3_BSS_IDX;
      uint8_t *r=m.tlv(2,16); r[4]=tgtCh; r[5]=fastActive?fastCenter:tgtCh;
@@ -1849,9 +1972,21 @@ index ad11950..310b97f 100644
      r[10]=1; r[11]=r[7]?4:0; r[12]=r[4]<r[5]?1:r[4]>r[5]?3:0; r[13]=g2?0:1;
      m.b[2]=m.b[3]=0;
      rc=m3Cmd(UNI_BSS_INFO_UPDATE,m.b,m.n,"bss(rlm)");
-@@ -399,6 +399,11 @@ int itlmt7922::m3Sta(uint8_t state, bool newly, uint16_t aid)
+@@ -386,7 +376,7 @@ int itlmt7922::m3Edca()
+         put16(e,cwMin[ac]?cwMin[ac]:5); put16(e+2,cwMax[ac]?cwMax[ac]:10);
+         put16(e+4,txop[ac]); put16(e+6,aifs[ac]);
+     }
+-    req[40]=M3_BSS_IDX; req[41]=1;
++    req[40]=M3_BSS_IDX; req[41]=fastActive && apCaps.wmm;
+     return mcuSend((1u<<18)|0x1d,req,sizeof(req),false,nullptr);
+ }
+ 
+@@ -397,8 +387,13 @@ int itlmt7922::m3Edca()
+ int itlmt7922::m3Sta(uint8_t state, bool newly, uint16_t aid)
+ {
      M3Msg m; m.init(8); m.b[0]=M3_BSS_IDX; m.b[1]=M3_AP_WCID; m.b[4]=1;
-     uint8_t *b=m.tlv(0,20); put32(b+4,0x10002); b[8]=2; b[9]=1;
+-    uint8_t *b=m.tlv(0,20); put32(b+4,0x10002); b[8]=2; b[9]=1;
++    uint8_t *b=m.tlv(0,20); put32(b+4,0x10002); b[8]=2; b[9]=fastActive && apCaps.wmm;
      put16(b+10,aid); memcpy(b+12,tgtBssid,6); put16(b+18,newly?3:1);
 +    if (state==255) {
 +        b[8]=0; b[9]=0;
@@ -1861,7 +1996,7 @@ index ad11950..310b97f 100644
      bool ht=fastActive && state==2;
      if (ht) {
          uint8_t *h=m.tlv(9,8); put16(h+4,apCaps.htCap);
-@@ -411,7 +416,7 @@ int itlmt7922::m3Sta(uint8_t state, bool newly, uint16_t aid)
+@@ -411,7 +406,7 @@ int itlmt7922::m3Sta(uint8_t state, bool newly, uint16_t aid)
      p[7]=ht?apCaps.ampduParm:0;
      p[9]=tgtRssi<0 && tgtRssi>=-110?(uint8_t)(2*(tgtRssi+110)):100;
      uint8_t *ra=m.tlv(1,16); put16(ra+4,(uint16_t)(apSupp<<6)|(g2?apCck:0));
@@ -1870,7 +2005,16 @@ index ad11950..310b97f 100644
      uint8_t *st=m.tlv(7,12); st[8]=state;
      if (ht&&apCaps.vht) st[9]=(uint8_t)(fastBw|((fastNss?fastNss-1:0)<<4));
      // STA_REC_WTBL nests its own header and count; Connac3 direct HDR_TRANS/MLD are invalid here.
-@@ -448,6 +453,7 @@ int itlmt7922::m3Sta(uint8_t state, bool newly, uint16_t aid)
+@@ -422,7 +417,7 @@ int itlmt7922::m3Sta(uint8_t state, bool newly, uint16_t aid)
+     auto wt=[&](uint16_t tag,uint16_t len)->uint8_t* {
+         uint8_t *t=m.b+m.n; put16(t,tag); put16(t+2,len); m.n+=len; nested++; return t;
+     };
+-    uint8_t *g=wt(0,20); memcpy(g+4,tgtBssid,6); g[10]=0; g[13]=1; put16(g+16,aid);
++    uint8_t *g=wt(0,20); memcpy(g+4,tgtBssid,6); g[10]=0; g[13]=fastActive && apCaps.wmm; put16(g+16,aid);
+     uint8_t *rx=wt(1,12); rx[5]=rx[6]=rx[7]=1;
+     uint8_t *tr=wt(6,8); tr[4]=1; tr[6]=1;
+     if (ht) {
+@@ -448,6 +443,7 @@ int itlmt7922::m3Sta(uint8_t state, bool newly, uint16_t aid)
  // ---------------------------------------------------------------------------------------------
  int itlmt7922::m3Roc(bool acquire)
  {
@@ -1878,7 +2022,7 @@ index ad11950..310b97f 100644
      uint8_t req[4 + 24];
      bzero(req, sizeof(req));
      uint8_t *t = req + 4;
-@@ -467,7 +473,7 @@ int itlmt7922::m3Roc(bool acquire)
+@@ -467,7 +463,7 @@ int itlmt7922::m3Roc(bool acquire)
          t[12] = 0;                                           // bw_from_ap
          t[13] = tgtCh;                                       // center_chan_from_ap
          t[15] = 0;                                           // reqtype JOIN
@@ -1887,7 +2031,7 @@ index ad11950..310b97f 100644
          t[20] = 0xff;                                        // dbdcband: auto
          return mcuSend((1u<<17)|UNI_ROC, req, sizeof(req), false, nullptr);
      }
-@@ -499,13 +505,22 @@ bool itlmt7922::m3Xchg(const uint8_t *frame, uint32_t len, uint8_t subtype, uint
+@@ -499,13 +495,22 @@ bool itlmt7922::m3Xchg(const uint8_t *frame, uint32_t len, uint8_t subtype, uint
      m3rxLen = 0;
      m3wantFc = wantFc;
      bool got = false;
@@ -1912,7 +2056,7 @@ index ad11950..310b97f 100644
      if (!got) m3log("no response fc=%02x rxpk=%u txcpu=%u txdma=%u", wantFc, rxPkts, txData.head, rd(txData.regs + Q_DMA_IDX) & 0xffff);
      return got;
  }
-@@ -526,10 +541,16 @@ int itlmt7922::m3Auth()
+@@ -526,10 +531,16 @@ int itlmt7922::m3Auth()
      put16(f + 24, 0);                                            // open system
      put16(f + 26, 1);                                            // transaction 1
      put16(f + 28, 0);
@@ -1930,26 +2074,28 @@ index ad11950..310b97f 100644
      return (alg == 0 && seq == 2 && st == 0) ? 0 : ITL_EIO;
  }
  
-@@ -543,16 +564,14 @@ int itlmt7922::m3Assoc()
+@@ -543,16 +554,11 @@ int itlmt7922::m3Assoc()
      bool g2 = tgtCh <= 14;
      put16(p, g2 ? 0x0431 : 0x0411); p += 2;                     // ESS | PRIVACY | short slot (| short preamble on 2.4 GHz)
      put16(p, 10); p += 2;                                        // listen interval
 -    uint8_t sl = (uint8_t)strlen(m3ssid);
 +    uint8_t sl = m3ssidLength;
      *p++ = 0; *p++ = sl; memcpy(p, m3ssid, sl); p += sl;
-     static const uint8_t rates[8] = {0x8c, 0x12, 0x98, 0x24, 0xb0, 0x48, 0x60, 0x6c};
-     static const uint8_t rates2g[8] = {0x82, 0x84, 0x8b, 0x96, 0x0c, 0x12, 0x18, 0x24};     // 1, 2, 5.5, 11 (CCK), 6, 9, 12, 18
-     static const uint8_t ext2g[4] = {0x30, 0x48, 0x60, 0x6c};                               // 24, 36, 48, 54
-     *p++ = 1; *p++ = 8; memcpy(p, g2 ? rates2g : rates, 8); p += 8;
-     if (g2) { *p++ = 50; *p++ = 4; memcpy(p, ext2g, 4); p += 4; }
+-    static const uint8_t rates[8] = {0x8c, 0x12, 0x98, 0x24, 0xb0, 0x48, 0x60, 0x6c};
+-    static const uint8_t rates2g[8] = {0x82, 0x84, 0x8b, 0x96, 0x0c, 0x12, 0x18, 0x24};     // 1, 2, 5.5, 11 (CCK), 6, 9, 12, 18
+-    static const uint8_t ext2g[4] = {0x30, 0x48, 0x60, 0x6c};                               // 24, 36, 48, 54
+-    *p++ = 1; *p++ = 8; memcpy(p, g2 ? rates2g : rates, 8); p += 8;
+-    if (g2) { *p++ = 50; *p++ = 4; memcpy(p, ext2g, 4); p += 4; }
 -    static const uint8_t rsn[22] = {0x30, 0x14, 0x01, 0x00, 0x00, 0x0f, 0xac, 0x04, 0x01, 0x00, 0x00, 0x0f, 0xac, 0x04,
 -                                    0x01, 0x00, 0x00, 0x0f, 0xac, 0x02, 0x00, 0x00};
 -    memcpy(p, rsn, sizeof(rsn)); p += sizeof(rsn);
++    ItlLegacyRates rates={}; rates.cck=apCck; rates.ofdm=apSupp; rates.basicCck=apBasicCck; rates.basicOfdm=apBasic;
++    size_t rateLength=itl_station_rate_ies(p,rates); if (!rateLength) return ITL_EINVAL; p+=rateLength;
 +    memcpy(p,rsnSecurity.station,rsnSecurity.stationLength); p+=rsnSecurity.stationLength;
      if (fastActive) {
          p += itl_caps_build_ht(p);
          if (apCaps.vht) p += itl_caps_build_vht(p, fastAllow160);
-@@ -560,11 +579,27 @@ int itlmt7922::m3Assoc()
+@@ -560,11 +566,31 @@ int itlmt7922::m3Assoc()
          static const uint8_t wmm[9] = {0xdd, 0x07, 0x00, 0x50, 0xf2, 0x02, 0x00, 0x01, 0x00};   // WMM information element: we are QoS-capable
          memcpy(p, wmm, sizeof(wmm)); p += sizeof(wmm);
      }
@@ -1969,7 +2115,11 @@ index ad11950..310b97f 100644
 +    if (!haveRates) return ITL_EIO;
 +    if (fastActive) {
 +        itl_ap_caps response={}; itl_caps_parse(m3rx+30,m3rxLen-30,&response);
-+        if (!response.ht || (apCaps.vht && !response.vht)) return ITL_EIO;
++        if (!response.ht || !response.wmm || (apCaps.vht && !response.vht)) return ITL_EIO;
++        // Operation IEs can be absent from a successful association response.
++        // Keep the beacon channel plan in that case, rather than retuning to 20 MHz.
++        if (!response.htOp) { response.htOp=apCaps.htOp; response.htOpPrimary=apCaps.htOpPrimary; response.htOpInfo=apCaps.htOpInfo; }
++        if (!response.vhtOp) { response.vhtOp=apCaps.vhtOp; response.vhtOpWidth=apCaps.vhtOpWidth; response.vhtSeg0=apCaps.vhtSeg0; response.vhtSeg1=apCaps.vhtSeg1; }
 +        apCaps=response;
 +        itl_caps_channel(&apCaps,tgtCh,false,&fastBw,&fastCenter);
 +        fastNss=itl_caps_nss(&apCaps); fastRate=itl_caps_max_rate(&apCaps,fastBw,false);
@@ -1979,7 +2129,7 @@ index ad11950..310b97f 100644
      return 0;
  }
  
-@@ -574,6 +609,9 @@ int itlmt7922::m3Assoc()
+@@ -574,6 +600,9 @@ int itlmt7922::m3Assoc()
  int itlmt7922::m3Run1()
  {
      m3log("armed");
@@ -1989,7 +2139,7 @@ index ad11950..310b97f 100644
      m3stepDown = m3stepRadio = false;                        // per-attempt state (an earlier attempt may have failed half way)
      m3reachedAssoc = false;
      m3cipher = 0;
-@@ -583,6 +621,9 @@ int itlmt7922::m3Run1()
+@@ -583,6 +612,9 @@ int itlmt7922::m3Run1()
      m3eapolLen = 0;
      m3eapolHead = m3eapolTail = m3eapolDrops = 0;
      m3rxLen = 0;
@@ -1999,7 +2149,7 @@ index ad11950..310b97f 100644
      fastActive = false;
      txPool = true;
  
-@@ -605,24 +646,29 @@ int itlmt7922::m3Run1()
+@@ -605,24 +637,29 @@ int itlmt7922::m3Run1()
      for (int pass = 0; pass < 2; pass++)
          for (int i = 0; i < nn; i++) {
              bool seen = false;
@@ -2033,7 +2183,7 @@ index ad11950..310b97f 100644
      strlcpy(m3psk, nets[sel].psk, sizeof(m3psk));
      // candNets stays: the fall-back ladder in m3Run() calls this again for the next level; m3Supervise() wipes it afterwards
      m3log("selected net%d ssid len=%u", sel + 1, (unsigned)strlen(m3ssid));
-@@ -640,7 +686,7 @@ int itlmt7922::m3Run1()
+@@ -640,7 +677,7 @@ int itlmt7922::m3Run1()
      // PMK now (4096 PBKDF2 iterations), kept for the 4-way handshake; native Wi-Fi hands over the key its supplicant derived
      uint8_t pmk[32];
      if (nets[sel].hasPmk) memcpy(pmk, nets[sel].pmk, sizeof(pmk));
@@ -2042,11 +2192,16 @@ index ad11950..310b97f 100644
      memcpy(m3pmk, pmk, sizeof(m3pmk));
      bzero(pmk, sizeof(pmk));
      m3log("pmk ready");
-@@ -648,15 +694,20 @@ int itlmt7922::m3Run1()
+@@ -648,15 +685,25 @@ int itlmt7922::m3Run1()
  
      // step 2: firmware / hardware prep, BSS + STA records in the "not associated" state, ROC on the AP's channel
      m3ParseAp();
-+    if (!sessionCurrent() || (requestedChannel && requestedChannel!=tgtCh) ||
++    char profile[160];
++    snprintf(profile,sizeof(profile),"ht=%u wmm=%u bw=%u center=%u cck=%x/%x ofdm=%x/%x data_queue=1",
++             fastActive?1u:0u,(fastActive&&apCaps.wmm)?1u:0u,fastActive?fastBw:0,fastActive?fastCenter:tgtCh,
++             apCck,apBasicCck,apSupp,apBasic);
++    setProperty("wifi-radio-profile",profile);
++    if (!sessionCurrent() || (!apSupp && !apCck) || (requestedChannel && requestedChannel!=tgtCh) ||
 +        !itl_rsn_select(apRsn,apRsnLen,requestedRsn,requestedRsnLength,&rsnSecurity)) {
 +        m3Publish("security-fail"); setProperty("wifi-rsn-error","unsupported or inconsistent WPA2 CCMP/PSK profile"); return ITL_EINVAL;
 +    }
@@ -2065,7 +2220,7 @@ index ad11950..310b97f 100644
  
      // step 3: open-system authentication and association, both on the channel held by the ROC
      m3log("sta mac %02x:%02x:%02x:%02x:%02x:%02x", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
-@@ -664,6 +715,12 @@ int itlmt7922::m3Run1()
+@@ -664,6 +711,12 @@ int itlmt7922::m3Run1()
      m3Publish(rc ? "auth-fail" : "auth-ok");
      if (!rc) {
          m3reachedAssoc = true;
@@ -2078,7 +2233,7 @@ index ad11950..310b97f 100644
          rc = m3Assoc();
          m3Publish(rc ? "assoc-fail" : "assoc-ok");
      }
-@@ -673,12 +730,12 @@ int itlmt7922::m3Run1()
+@@ -673,12 +726,12 @@ int itlmt7922::m3Run1()
          rc=m3Bss(true);
          if (!rc) rc=m3Sta(2,false,m3aid);
          if (!rc) rc=m3Handshake();
@@ -2093,7 +2248,7 @@ index ad11950..310b97f 100644
          m3log("RESULT rc=0 link up");
          m3Link();                                            // returns only when this level has to be given up (m3stepDown)
          return ITL_EIO;
-@@ -691,12 +748,12 @@ int itlmt7922::m3Run1()
+@@ -691,16 +744,16 @@ int itlmt7922::m3Run1()
      return rc;
  }
  
@@ -2108,7 +2263,12 @@ index ad11950..310b97f 100644
      lvl = m3fast ? (fastLevel < lvlCap ? fastLevel : lvlCap) : 0;
      for (; !shouldStop() && !firmwareFault;) {
          int rc = m3Run1();
-@@ -731,15 +788,12 @@ int itlmt7922::m3Run()
+-        if (!m3stepDown || lvl == 0) return rc;
++        if (!m3stepDown || lvl == 0 || (lvl==1 && apCaps.ht && !apCck)) return rc;
+         uint8_t next = lvl - 1;
+         const bool forced = lvlForce != 0;                   // run-time control (itl_lvl): exactly the level asked for
+         if (forced) {
+@@ -731,15 +784,12 @@ int itlmt7922::m3Run()
  void itlmt7922::m3Teardown()
  {
      m3linkUp = false;
@@ -2127,7 +2287,7 @@ index ad11950..310b97f 100644
      m3dataOn = false;
      m3cipher = 0;
      IOSleep(100);
-@@ -882,8 +936,9 @@ void itlmt7922::amsduFlush()
+@@ -882,8 +932,9 @@ void itlmt7922::amsduFlush()
      a.active = false;
      uint32_t used = a.used;
      a.used = 0;
@@ -2139,7 +2299,7 @@ index ad11950..310b97f 100644
  }
  
  void itlmt7922::rxStore(const uint8_t *eb, uint32_t n, bool reorder, uint8_t tid, uint16_t sn, bool last)
-@@ -891,13 +946,19 @@ void itlmt7922::rxStore(const uint8_t *eb, uint32_t n, bool reorder, uint8_t tid
+@@ -891,13 +942,19 @@ void itlmt7922::rxStore(const uint8_t *eb, uint32_t n, bool reorder, uint8_t tid
      AmsduAsm &a = amsduAsm;
      szParsed[szClass(n)]++;
      if (isBigEcho(eb, n, 0)) icmpRepParsed++;
@@ -2162,7 +2322,7 @@ index ad11950..310b97f 100644
      uint32_t u = itl_bundle_add(a.buf, sizeof(a.buf), a.used, eb, n);
      if (u == a.used) { stRxDrop++; stBundleOvf++; } else a.used = u;
      if (last) amsduFlush();
-@@ -925,11 +986,12 @@ void itlmt7922::amsduFrameCb(void *ctx, const uint8_t *da, const uint8_t *sa, ui
+@@ -925,11 +982,12 @@ void itlmt7922::amsduFrameCb(void *ctx, const uint8_t *da, const uint8_t *sa, ui
  uint32_t itlmt7922::m3RxAmsdu(const uint8_t *b, uint32_t n, uint8_t ai, bool reorder, uint8_t tid, uint16_t sn)
  {
      M3AmsduCtx x = { this, reorder, tid, sn, 0 };
@@ -2177,7 +2337,7 @@ index ad11950..310b97f 100644
      }
      // The Connac2 data codec has already removed the hardware A-MSDU pad.
      // Parse exactly that normalized body; do not search alternate offsets.
-@@ -937,7 +999,8 @@ uint32_t itlmt7922::m3RxAmsdu(const uint8_t *b, uint32_t n, uint8_t ai, bool reo
+@@ -937,7 +995,8 @@ uint32_t itlmt7922::m3RxAmsdu(const uint8_t *b, uint32_t n, uint8_t ai, bool reo
      if (found > x.good) stRxBigDrop += found - x.good;
      // Connac2 payload format 0 is a complete MPDU, and 1 its last split
      // subframe. Both close the bundle immediately; first/middle stay open.
@@ -2187,7 +2347,7 @@ index ad11950..310b97f 100644
      return x.good;
  }
  
-@@ -945,10 +1008,10 @@ uint32_t itlmt7922::m3RxAmsdu(const uint8_t *b, uint32_t n, uint8_t ai, bool reo
+@@ -945,25 +1004,22 @@ uint32_t itlmt7922::m3RxAmsdu(const uint8_t *b, uint32_t n, uint8_t ai, bool reo
  // the hardware once the keys are installed). EAPOL goes to the handshake, everything else to the Ethernet interface.
  // The header sits after up to 32 + 4 x 16 + 96 bytes of RXD groups (mt7922_mac_fill_rx), so look for it from byte 32 on.
  
@@ -2196,20 +2356,51 @@ index ad11950..310b97f 100644
  {
      uint8_t f[34 + 1560];
 -    if (plen > 1560) return false;
+-    // With HT/VHT negotiated, unicast data (not the EAPOL handshake) goes out as QoS data (TID 0) at the rate the firmware
+-    // chooses; group-addressed frames and everything else keep the fixed basic rate.
+-    bool ra = fastActive && m3linkUp && ethertype != 0x888e && !(da[0] & 1);
+-    uint32_t hl = ra ? 26 : 24;
+-    bzero(f, hl);
+-    f[0] = ra ? 0x88 : 0x08;                                 // data / QoS data
+-    f[1] = protect ? 0x41 : 0x01;                            // To DS (+ Protected: the hardware adds the CCMP header)
+-    memcpy(f + 4, tgtBssid, 6);
+-    memcpy(f + 10, mac, 6);
+-    memcpy(f + 16, da, 6);                                   // QoS control (bytes 24-25) stays 0: TID 0, normal ack
 +    if (plen > ITL_RSN_FRAME_MAX) return false;
-     // With HT/VHT negotiated, unicast data (not the EAPOL handshake) goes out as QoS data (TID 0) at the rate the firmware
-     // chooses; group-addressed frames and everything else keep the fixed basic rate.
-     bool ra = fastActive && m3linkUp && ethertype != 0x888e && !(da[0] & 1);
-@@ -962,7 +1025,7 @@ bool itlmt7922::m3TxData(const uint8_t *da, uint16_t ethertype, const uint8_t *p
++    // A station sends even broadcast DHCP to the AP as a unicast radio hop.
++    // WMM, frame format and the firmware station record must agree.
++    ItlDataTxPlan plan=itl_station_data_tx(fastActive && apCaps.wmm,fastActive,m3linkUp,ethertype);
++    bool ra=plan.rateAdapt;
++
++    size_t frameLength=itl_station_to_ds(f,sizeof(f),tgtBssid,mac,da,ethertype,payload,plen,plan.qos,protect);
++    if (!frameLength) return false;
      M3TxOpt o;
      o.protect = protect;
      o.rateAdapt = ra;
 -    o.full = full;
+-    if (ra) o.qidx = 1; // Connac2 AC_BE mapping applies before TX Block Ack too.
 +    o.full = full; o.token=token;
-     if (ra) o.qidx = 1; // Connac2 AC_BE mapping applies before TX Block Ack too.
++    o.qidx=plan.queue; // AC_BE is also required for non-QoS legacy payloads.
      uint16_t sn = txSn;
      if (ra && lvl >= 3) {
-@@ -990,6 +1053,8 @@ bool itlmt7922::m3TxData(const uint8_t *da, uint16_t ethertype, const uint8_t *p
+         // Level 3: access-category queue (AC_BE -> LMAC queue 1, mt76_connac_lmac_mapping), sequence numbers chosen here so that the
+@@ -974,13 +1030,9 @@ bool itlmt7922::m3TxData(const uint8_t *da, uint16_t ethertype, const uint8_t *p
+         f[22] = (uint8_t)((sn & 0xf) << 4);                  // sequence control: SN << 4, fragment 0
+         f[23] = (uint8_t)(sn >> 4);
+     }
+-    static const uint8_t llc[6] = {0xaa, 0xaa, 0x03, 0x00, 0x00, 0x00};
+-    memcpy(f + hl, llc, 6);
+-    f[hl + 6] = (uint8_t)(ethertype >> 8); f[hl + 7] = (uint8_t)ethertype;
+-    memcpy(f + hl + 8, payload, plen);
+-    bool ok = m3Tx(f, hl + 8 + plen, 2, ra ? 8 : 0, o);
++    bool ok = m3Tx(f, (uint32_t)frameLength, 2, plan.qos ? 8 : 0, o);
+     if (ok && ra) {
+-        stTxUni++;
++        if (!(da[0]&1)) stTxUni++;
+         if (lvl >= 3) txSn = itl_sn_inc(sn);                 // only a frame that really went out uses up a sequence number
+     }
+     return ok;
+@@ -990,6 +1042,8 @@ bool itlmt7922::m3TxData(const uint8_t *da, uint16_t ethertype, const uint8_t *p
  int itlmt7922::ethTx(const uint8_t *e, uint32_t len)
  {
      if (!m3linkUp || len < 14) return -1;
@@ -2218,7 +2409,7 @@ index ad11950..310b97f 100644
      bool full = false;
      bool ok = m3TxData(e, be16p(e + 12), e + 14, len - 14, true, &full);
      if (full) return 1;
-@@ -1002,11 +1067,11 @@ int itlmt7922::ethTx(const uint8_t *e, uint32_t len)
+@@ -1002,11 +1056,11 @@ int itlmt7922::ethTx(const uint8_t *e, uint32_t len)
  // STA_REC_KEY_V3 (mt7922_mcu_sta_key_tlv): CCMP key on the AP's wcid (pairwise) or on the BSS's broadcast wcid (group)
  int itlmt7922::m3Key(uint16_t wcid, bool pairwise, uint8_t keyId, const uint8_t *key, uint8_t keyLen)
  {
@@ -2234,7 +2425,7 @@ index ad11950..310b97f 100644
      int rc=m3Cmd(UNI_STA_REC_UPDATE,m.b,m.n,pairwise?"key_v2(ptk)":"key_v2(gtk)");
      bzero(m.b,sizeof(m.b)); return rc;
  }
-@@ -1040,174 +1105,10 @@ bool itlmt7922::m3EapolNext()
+@@ -1040,174 +1094,10 @@ bool itlmt7922::m3EapolNext()
      return true;
  }
  
@@ -2410,7 +2601,7 @@ index ad11950..310b97f 100644
      bool eok = nativeMode || eth || ethCreate();
      m3log("%s interface %s", nativeMode ? "native" : "ethernet", eok ? "ready" : "FAILED");
      if (!eok) {
-@@ -1234,12 +1135,14 @@ void itlmt7922::m3Link()
+@@ -1234,12 +1124,14 @@ void itlmt7922::m3Link()
      linkUpMs = t0;
      lastReorderMs = t0;
      m3lost = false;
@@ -2426,7 +2617,7 @@ index ad11950..310b97f 100644
      // Native publication may wake DHCP immediately. Radio TX/session state
      // must already be ready before entering the Family link transition.
      ethLink(true);
-@@ -1247,7 +1150,11 @@ void itlmt7922::m3Link()
+@@ -1247,11 +1139,17 @@ void itlmt7922::m3Link()
      bool watchdogDone = false, silenceDone = false;
      for (; !shouldStop() && !firmwareFault;) {
          int act = m3PumpOnce();
@@ -2437,7 +2628,15 @@ index ad11950..310b97f 100644
 +        }
          if (cmdPending(CMD_SCAN)) {                          // scan on the link: the firmware returns to the AP's channel between dwells
              cmdTake(CMD_SCAN, nullptr);
-             wifiScan();
+-            wifiScan();
+-            wifiState("connected", "");
++            // Return a coherent cached scan while associated. Off-channel scan
++            // scheduling is not yet coordinated with this firmware/RSN worker.
++            wifiNets(); __atomic_store_n(&scanBusy,0,__ATOMIC_RELEASE);
++            publishSnapshot();
+             now = nowMs();
+         }
+         if (cmdPending(CMD_JOIN | CMD_DISCONNECT)) {         // another network, or off: m3Supervise() takes it from here
 diff --git a/src/itlmt7922_rsn.cpp b/src/itlmt7922_rsn.cpp
 new file mode 100644
 index 0000000..b284b26
@@ -2647,7 +2846,7 @@ index 35aea0d..1087a2e 100644
          if (m3wantEapol) m3Eapol(body, data.body_length);
          return true;
 diff --git a/src/itlmt7922_uc.cpp b/src/itlmt7922_uc.cpp
-index 6738c4c..76a5f77 100644
+index 6738c4c..2e97330 100644
 --- a/src/itlmt7922_uc.cpp
 +++ b/src/itlmt7922_uc.cpp
 @@ -113,7 +113,7 @@ IOReturn itlmt7922::newUserClient(task_t owningTask, void *securityID, UInt32 ty
@@ -2703,7 +2902,7 @@ index 6738c4c..76a5f77 100644
  }
  
  void itlmt7922::wifiScan()
-@@ -259,7 +267,7 @@ void itlmt7922::wifiScan()
+@@ -259,10 +267,11 @@ void itlmt7922::wifiScan()
  IOReturn itlmt7922::nativeScanReq(uint32_t *started)
  {
      *started = 0;
@@ -2711,8 +2910,13 @@ index 6738c4c..76a5f77 100644
 +    if (shouldStop() || !cmdLock || !wstate[0]) return kIOReturnNotReady;
      IOLockLock(cmdLock);
      uint32_t now = nowMs();
-     if ((cmdBits & CMD_SCAN) || __atomic_load_n(&scanBusy, __ATOMIC_ACQUIRE)) *started = 1;      // join the queued / running scan
-@@ -274,19 +282,25 @@ IOReturn itlmt7922::nativeScanReq(uint32_t *started)
+-    if ((cmdBits & CMD_SCAN) || __atomic_load_n(&scanBusy, __ATOMIC_ACQUIRE)) *started = 1;      // join the queued / running scan
++    if (njState==ITL_NATIVE_UP || njState==ITL_NATIVE_CONNECTING) *started=0; // cached results during an active session
++    else if ((cmdBits & CMD_SCAN) || __atomic_load_n(&scanBusy, __ATOMIC_ACQUIRE)) *started = 1;      // join the queued / running scan
+     else if (lastScanReqMs && now - lastScanReqMs < 10000) *started = 0;                          // cache is current: caller delivers it
+     else {
+         lastScanReqMs = now ? now : 1;
+@@ -274,19 +283,25 @@ IOReturn itlmt7922::nativeScanReq(uint32_t *started)
      return kIOReturnSuccess;
  }
  
@@ -2742,7 +2946,7 @@ index 6738c4c..76a5f77 100644
      cmdBits = (cmdBits & ~(uint32_t)CMD_DISCONNECT) | (uint32_t)CMD_JOIN;
      IOLockUnlock(cmdLock);
      return kIOReturnSuccess;
-@@ -311,16 +325,17 @@ static uint32_t failCode(const char *stage)
+@@ -311,16 +326,17 @@ static uint32_t failCode(const char *stage)
      return 7;
  }
  
@@ -2762,7 +2966,7 @@ index 6738c4c..76a5f77 100644
      s->failStage = njFail;
      s->scanGen = scanGen;
      s->scanBusy = __atomic_load_n(&scanBusy, __ATOMIC_ACQUIRE);
-@@ -328,7 +343,7 @@ void itlmt7922::nativeStatus(ItlNativeStatus *s)
+@@ -328,7 +344,7 @@ void itlmt7922::nativeStatus(ItlNativeStatus *s)
      s->channel = tgtCh;
      s->rssi = tgtRssi;
      s->rateMbps = fastActive ? fastRate : 54;
@@ -2771,7 +2975,7 @@ index 6738c4c..76a5f77 100644
      memcpy(s->ssid, m3ssid, n);
      s->ssidLen = (uint8_t)n;
      s->capability = tgtCap;
-@@ -369,7 +384,7 @@ void itlmt7922::nativeStatus(ItlNativeStatus *s)
+@@ -369,7 +385,7 @@ void itlmt7922::nativeStatus(ItlNativeStatus *s)
      }
  }
  
@@ -2780,7 +2984,7 @@ index 6738c4c..76a5f77 100644
  {
      out->version = 1;
      out->count = 0;
-@@ -386,7 +401,7 @@ void itlmt7922::nativeNets(ItlNativeNets *out)
+@@ -386,7 +402,7 @@ void itlmt7922::nativeNets(ItlNativeNets *out)
          o.channel = a.ch;
          o.security = a.sec;
          o.rssi = a.rssi;
@@ -2789,7 +2993,7 @@ index 6738c4c..76a5f77 100644
          memcpy(o.ssid, a.ssid, n);
          o.ssidLen = (uint8_t)n;
          o.probeResponse = a.probe;
-@@ -446,14 +461,15 @@ static uint8_t secFromIes(const uint8_t *ie, const uint8_t *end, uint16_t cap)
+@@ -446,14 +462,15 @@ static uint8_t secFromIes(const uint8_t *ie, const uint8_t *end, uint16_t cap)
      return (cap & 0x10) ? ITL_SEC_WEP : ITL_SEC_OPEN;
  }
  
@@ -2807,7 +3011,7 @@ index 6738c4c..76a5f77 100644
          if (rssi) tgtRssi = tgtRssi ? (int8_t)((tgtRssi * 3 + rssi) / 4) : rssi;
      }
      int k = -1;
-@@ -469,7 +485,7 @@ void itlmt7922::apSeen(const uint8_t *p, uint32_t len, uint32_t off, const char
+@@ -469,7 +486,7 @@ void itlmt7922::apSeen(const uint8_t *p, uint32_t len, uint32_t off, const char
      }
      itl_ap &a = aps[k];
      a.ch = ch;
@@ -2816,7 +3020,7 @@ index 6738c4c..76a5f77 100644
      if (rssi) a.rssi = a.rssi ? (int8_t)((a.rssi + rssi) / 2) : rssi;
      a.sec = secFromIes(f + 36, p + len, (uint16_t)(f[34] | (f[35] << 8)));
      a.seenMs = now;
-@@ -496,6 +512,7 @@ int itlmt7922::loadPlistNets(Net *out, int max)
+@@ -496,6 +513,7 @@ int itlmt7922::loadPlistNets(Net *out, int max)
          OSString *k = OSDynamicCast(OSString, getProperty(kp));
          if (!s || !k || !s->getLength() || s->getLength() > 32 || k->getLength() < 8 || k->getLength() > 63) continue;
          strlcpy(out[n].ssid, s->getCStringNoCopy(), sizeof(out[n].ssid));
@@ -2824,7 +3028,7 @@ index 6738c4c..76a5f77 100644
          strlcpy(out[n].psk, k->getCStringNoCopy(), sizeof(out[n].psk));
          n++;
      }
-@@ -507,30 +524,33 @@ static const char *failText(const char *stage)
+@@ -507,30 +525,33 @@ static const char *failText(const char *stage)
      if (!strncmp(stage, "nocred", 6)) return "no network configured";
      if (!strncmp(stage, "scan", 4)) return "network not found";
      if (!strncmp(stage, "roc-fail", 8)) return "radio did not get the channel";
@@ -2862,7 +3066,7 @@ index 6738c4c..76a5f77 100644
      m3log("supervisor: %d configured network(s)", nb);
      while (!shouldStop()) {
          if (firmwareFault) {
-@@ -558,10 +578,10 @@ void itlmt7922::m3Supervise()
+@@ -558,10 +579,10 @@ void itlmt7922::m3Supervise()
              // Another network, or a cap learned more than 10 min ago: start from mt7922_fast again. The cap survives a disconnect
              // and a failed join of the same network (the Family retries from the start each time; every retry used to spend
              // 30+ s walking down the same ladder again).
@@ -2875,7 +3079,7 @@ index 6738c4c..76a5f77 100644
              }
              user = j;
              userNative = j.native;
-@@ -585,7 +605,7 @@ void itlmt7922::m3Supervise()
+@@ -585,7 +606,7 @@ void itlmt7922::m3Supervise()
              bootScan = false;
              if (probeAll) lastProbeAll = now;
              candN = 0;
@@ -2885,7 +3089,7 @@ index 6738c4c..76a5f77 100644
                  if (haveUser && !strcmp(boot[i].ssid, user.ssid)) continue;
                  if (probeAll || apInRange(boot[i].ssid, 60000)) candNets[candN++] = boot[i];
 diff --git a/src/kmod_info.c b/src/kmod_info.c
-index 4a60c13..cf4a543 100644
+index 4a60c13..0cde2a8 100644
 --- a/src/kmod_info.c
 +++ b/src/kmod_info.c
 @@ -8,7 +8,7 @@ extern kern_return_t _start(kmod_info_t *ki, void *data);
@@ -2893,7 +3097,7 @@ index 4a60c13..cf4a543 100644
  
  __attribute__((visibility("default")))
 -KMOD_EXPLICIT_DECL(local.experimental.itlmt7922, "0.2.2", _start, _stop)
-+KMOD_EXPLICIT_DECL(local.x1605va.MT7902WiFi, "0.3.0", _start, _stop)
++KMOD_EXPLICIT_DECL(local.x1605va.MT7902WiFi, "0.3.1", _start, _stop)
  __private_extern__ kmod_start_func_t *_realmain = 0;
  __private_extern__ kmod_stop_func_t *_antimain = 0;
  __private_extern__ int _kext_apple_cc = __APPLE_CC__;
@@ -3211,10 +3415,10 @@ index 0000000..d02a244
 +static const uint8_t fx_rekey_groupBadMic[] = {2,3,0,127,2,19,130,0,16,0,0,0,0,0,0,0,13,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,173,240,251,173,19,146,30,15,131,94,74,62,62,170,124,215,0,32,178,226,52,100,75,148,4,41,116,199,208,3,31,36,198,10,224,43,124,23,111,43,8,74,144,208,0,117,236,199,246,81};
 +static const uint8_t fx_rekey_oldGroup[] = {2,3,0,127,2,19,130,0,16,0,0,0,0,0,0,0,11,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,102,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,208,157,164,144,94,188,105,183,235,173,152,43,157,69,149,216,0,32,239,107,124,17,155,118,3,204,10,71,74,150,135,196,184,48,165,49,110,162,235,20,122,125,152,130,219,207,245,194,220,24};
 diff --git a/tests/run_protocol_tests.sh b/tests/run_protocol_tests.sh
-index 3e3bfd3..c9e0634 100644
+index 3e3bfd3..8e609e8 100644
 --- a/tests/run_protocol_tests.sh
 +++ b/tests/run_protocol_tests.sh
-@@ -10,3 +10,8 @@ for kind in wpa caps ba; do
+@@ -10,3 +10,13 @@ for kind in wpa caps ba; do
          "$test_root/src/itl_${kind}.cpp" -o "$test_dir/${kind}_test"
      "$test_dir/${kind}_test"
  done
@@ -3223,6 +3427,62 @@ index 3e3bfd3..c9e0634 100644
 +    "$test_root/tests/rsn_test.cpp" "$test_root/src/itl_rsn.cpp" \
 +    "$test_root/src/itl_wpa.cpp" "$test_root/src/itl_ba.cpp" -o "$test_dir/rsn_test"
 +"$test_dir/rsn_test"
++"${CXX:-c++}" -std=c++17 -Wall -Wextra -Werror -UNDEBUG \
++    -fsanitize=address,undefined -fno-omit-frame-pointer -g \
++    "$test_root/tests/station_test.cpp" "$test_root/src/itl_caps.cpp" \
++    "$test_root/codec/mt7922_tx_codec.cpp" -o "$test_dir/station_test"
++"$test_dir/station_test"
+diff --git a/tests/station_test.cpp b/tests/station_test.cpp
+new file mode 100644
+index 0000000..cff5aad
+--- /dev/null
++++ b/tests/station_test.cpp
+@@ -0,0 +1,45 @@
++// SPDX-License-Identifier: BSD-3-Clause-Clear
++#include "../src/itl_station.h"
++#include "../src/itl_caps.h"
++#include "../codec/mt7922_tx_codec.h"
++#include <assert.h>
++#include <stdio.h>
++static uint32_t le32(const uint8_t *p){return p[0]|(uint32_t)p[1]<<8|(uint32_t)p[2]<<16|(uint32_t)p[3]<<24;}
++int main(){
++    // An HT-only AP may advertise OFDM only and omit every Basic bit.
++    const uint8_t nOnly[]={1,8,12,18,24,36,48,72,96,108};
++    ItlLegacyRates rates={};assert(itl_station_rates(nOnly,sizeof(nOnly),true,&rates));
++    assert(rates.cck==0 && rates.ofdm==255 && rates.basicOfdm==1 && rates.inferred);
++    uint8_t ies[32]={};size_t n=itl_station_rate_ies(ies,rates);
++    const uint8_t expected[]={1,8,0x8c,18,24,36,48,72,96,108};
++    assert(n==sizeof(expected) && !memcmp(ies,expected,n));
++    const uint8_t mixed[]={1,8,0x82,0x84,0x8b,0x96,12,18,24,36,50,4,48,72,96,108};
++    assert(itl_station_rates(mixed,sizeof(mixed),true,&rates) && !rates.inferred);
++    assert(rates.cck==15 && rates.basicCck==15 && itl_station_rate_ies(ies,rates)==16);
++    ItlLegacyRates round={};assert(itl_station_rates(ies,16,true,&round) && round.cck==15 && round.ofdm==255);
++    assert(itl_station_rates(mixed,sizeof(mixed),false,&rates) && !rates.cck && rates.basicOfdm);
++    for(size_t i=0;i<sizeof(nOnly);i++)assert(!itl_station_rates(nOnly,i,true,&rates));
++    const uint8_t wmm[]={221,7,0,0x50,0xf2,2,0,1,0};
++    itl_ap_caps caps={};itl_caps_parse(wmm,sizeof(wmm),&caps);assert(caps.wmm);
++    uint8_t invalid[sizeof(wmm)];memcpy(invalid,wmm,sizeof(wmm));invalid[7]=2;
++    itl_caps_parse(invalid,sizeof(invalid),&caps);assert(!caps.wmm);
++    invalid[7]=1;invalid[6]=1;itl_caps_parse(invalid,sizeof(invalid),&caps);assert(!caps.wmm); // truncated parameter IE
++    // DHCP broadcast is sent to the AP using the PTK and AC_BE; its final
++    // Ethernet destination does not turn the radio hop into a group/no-ACK TX.
++    const uint8_t ap[]={2,1,2,3,4,5},station[]={2,6,7,8,9,10},broadcast[]={255,255,255,255,255,255};
++    const uint8_t payload[]={0x45,0,0,4};uint8_t frame[1600],txwi[32];
++    for(unsigned ht=0;ht<2;ht++){
++        ItlDataTxPlan p=itl_station_data_tx(ht,ht,true,0x0800);assert(p.queue==1 && p.qos==(bool)ht);
++        n=itl_station_to_ds(frame,sizeof(frame),ap,station,broadcast,0x0800,payload,sizeof(payload),p.qos,true);
++        assert(n==(ht?38u:36u) && frame[1]==0x41 && !(frame[4]&1));
++        assert(!memcmp(frame+4,ap,6)&&!memcmp(frame+10,station,6)&&!memcmp(frame+16,broadcast,6));
++        assert(frame[ht?32:30]==8 && frame[ht?33:31]==0);
++        Mt7922TxOptions o={};o.wlan_index=1;o.queue=p.queue;o.protect=true;o.rate_adapt=p.rateAdapt;o.sequence=-1;o.fixed_rate=0x4b;
++        assert(mt7922_encode_txwi(txwi,frame,(uint32_t)n,o));
++        assert(le32(txwi)>>25==1 && (le32(txwi+12)&3)==2 && (le32(txwi+4)&1023)==1);
++    }
++    ItlDataTxPlan e=itl_station_data_tx(true,true,true,0x888e);assert(!e.qos&&!e.rateAdapt&&e.queue==16);
++    assert(!itl_station_to_ds(frame,20,ap,station,broadcast,0x0800,payload,4,false,true));
++    assert(!itl_station_to_ds(frame,sizeof(frame),ap,station,broadcast,0x0800,payload,1537,false,true));
++    puts("Station policy: OFDM-only/basic-rate recovery, WMM validation, DHCP To-DS/CCMP/WCID/AC_BE and legacy/HT paths passed.");
++}
 diff --git a/tests/test_data_tx_codec.cpp b/tests/test_data_tx_codec.cpp
 index 10e088a..21aa3fc 100644
 --- a/tests/test_data_tx_codec.cpp
