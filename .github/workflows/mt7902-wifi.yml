@@ -22,6 +22,10 @@ jobs:
           bash tools/build-mt7902-wifi.sh
           source_dir=(build/mt7902-wifi.*/itlmt7922-wifi-*)
           cd "${source_dir[0]}"
+          xcrun clang++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined \
+            tests/native_join_test.cpp -o build/native_join_test
+          build/native_join_test
+          bash tests/run_protocol_tests.sh
           kext=build/itlmt7922.kext
           native=build/itlmt7902Native.kext
           xcrun lipo "$kext/Contents/MacOS/itlmt7922" -verify_arch x86_64

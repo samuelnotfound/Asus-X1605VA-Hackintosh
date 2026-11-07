@@ -1,8 +1,8 @@
 diff --git a/kexts/itlmt7925Native/Info.plist b/kexts/itlmt7925Native/Info.plist
-index 8e89979..d50511b 100644
+index 8e89979..d21f8a3 100644
 --- a/kexts/itlmt7925Native/Info.plist
 +++ b/kexts/itlmt7925Native/Info.plist
-@@ -3,10 +3,10 @@
+@@ -3,26 +3,27 @@
  <plist version="1.0">
  <dict>
  	<key>CFBundleDevelopmentRegion</key><string>en</string>
@@ -14,9 +14,11 @@ index 8e89979..d50511b 100644
 -	<key>CFBundleName</key><string>itlmt7925Native</string>
 +	<key>CFBundleName</key><string>itlmt7902Native</string>
  	<key>CFBundlePackageType</key><string>KEXT</string>
- 	<key>CFBundleShortVersionString</key><string>0.1.0</string>
- 	<key>CFBundleVersion</key><string>0.1.0</string>
-@@ -14,15 +14,16 @@
+-	<key>CFBundleShortVersionString</key><string>0.1.0</string>
+-	<key>CFBundleVersion</key><string>0.1.0</string>
++	<key>CFBundleShortVersionString</key><string>0.2.1</string>
++	<key>CFBundleVersion</key><string>0.2.1</string>
+ 	<key>IOKitPersonalities</key>
  	<dict>
  		<key>itlmt7925Wifi</key>
  		<dict>
@@ -32,15 +34,23 @@ index 8e89979..d50511b 100644
  	<key>OSBundleLibraries</key>
  	<dict>
 -		<key>com.itlmt7925.kext</key><string>0.1.0</string>
-+		<key>local.x1605va.MT7902WiFi</key><string>0.2.0</string>
++		<key>local.x1605va.MT7902WiFi</key><string>0.2.1</string>
  		<key>com.apple.iokit.IO80211Family</key><string>1200.13.1</string>
  		<key>com.apple.iokit.IOSkywalkFamily</key><string>1.0</string>
  		<key>com.apple.driver.corecapture</key><string>1.0.4</string>
 diff --git a/kexts/itlmt7925Native/itlmt7925_iface.cpp b/kexts/itlmt7925Native/itlmt7925_iface.cpp
-index 81b0984..16ca0fc 100644
+index 81b0984..bf0d37f 100644
 --- a/kexts/itlmt7925Native/itlmt7925_iface.cpp
 +++ b/kexts/itlmt7925Native/itlmt7925_iface.cpp
-@@ -339,8 +339,7 @@ bool itlmt7925WifiInterface::startWithInfo(IO80211Controller *controller, IOSkyw
+@@ -9,6 +9,7 @@
+ //   (result 0 = success). The pool and the queues are created here directly with the IOSkywalk factories.
+ #include "itlmt7925_iface.h"
+ #include "ether_checksum.h"
++#include "mt7902_join.h"
+ 
+ #include <IOKit/IOLib.h>
+ #include <IOKit/IODeviceTreeSupport.h>
+@@ -339,8 +340,7 @@ bool itlmt7925WifiInterface::startWithInfo(IO80211Controller *controller, IOSkyw
          }
      }
      itlmtTrace(ctl, "sw:addEventSource x%u ok", n);
@@ -50,6 +60,64 @@ index 81b0984..16ca0fc 100644
          core = controller->getProvider();
          rxRing = (RxFrame *)IOMalloc(sizeof(RxFrame) * kRxRing);
          snap = (ItlNativeAp *)IOMalloc(sizeof(ItlNativeAp) * ITL_NATIVE_AP_MAX);
+@@ -1102,31 +1102,43 @@ IOReturn itlmt7925WifiInterface::setWCL_SCAN_ABORT(void *)
+     return kIOReturnSuccess;
+ }
+ 
+-// apple80211AssocCandidates (partial): +0x1c u32 ssid_len, +0x20 ssid[32], +0x40 apple80211_key {+4 key_len, +8 cipher_type,
+-// +0x10 key[]}. Apple's supplicant runs in userland: cipher_type 6 / 9 with a 32-byte key is the pairwise master key (derived
+-// from the passphrase), 0 is "no key". The 4-way handshake and the data keys are the core's; it supports WPA2-PSK / CCMP only.
++// WCL provides the PMK and its selected BSSID. The radio performs the four-way handshake.
+ IOReturn itlmt7925WifiInterface::setWCL_ASSOCIATE(apple80211AssocCandidates *d)
+ {
+     itlmtCall(ctl, 'S', 604);
+     if (!d) return kIOReturnBadArgument;
+     if (!bound || !core) return kIOReturnNotReady;
+     const uint8_t *b = (const uint8_t *)d;
+-    uint32_t ssidLen = 0, keyLen = 0, cipher = 0;
+-    memcpy(&ssidLen, b + 0x1c, 4);
+-    memcpy(&keyLen, b + 0x44, 4);
+-    memcpy(&cipher, b + 0x48, 4);
++    const uint32_t ssidLen = mt7902JoinRead32(b + 0x1c);
++    const uint32_t keyLen = mt7902JoinRead32(b + 0x44);
++    const uint32_t cipher = mt7902JoinRead32(b + 0x48);
++    setProperty("mt7902-join-key-cipher", cipher, 32);
++    setProperty("mt7902-join-key-length", keyLen, 32);
+     itlmtTrace(ctl, "assoc:request ssidLen=%u cipher=%u keyLen=%u", ssidLen, cipher, keyLen);
+-    if (ssidLen == 0 || ssidLen > 32) return kIOReturnBadArgument;
+-    if (!((cipher == 6 || cipher == 9) && keyLen == 32)) return kIOReturnUnsupported;   // open / SAE / enterprise: not implemented
++    Mt7902JoinRequest request = {};
++    const Mt7902JoinResult decoded = mt7902DecodeJoin(d, 0x2cc, &request);
++    if (decoded != Mt7902JoinResult::Ok) {
++        setProperty("mt7902-join-error", decoded == Mt7902JoinResult::Invalid ?
++            "invalid WCL association request" : "unsupported authentication or key type");
++        bzero(&request, sizeof(request));
++        return decoded == Mt7902JoinResult::Invalid ? kIOReturnBadArgument : kIOReturnUnsupported;
++    }
+     ItlNativeJoin j;
+     bzero(&j, sizeof(j));
+-    j.version = 1;
+-    j.ssidLen = (uint8_t)ssidLen;
+-    memcpy(j.ssid, b + 0x20, ssidLen);
+-    memcpy(j.pmk, b + 0x50, 32);
++    j.version = 2;
++    j.ssidLen = request.ssidLength;
++    memcpy(j.ssid, request.ssid, sizeof(j.ssid));
++    memcpy(j.pmk, request.pmk, sizeof(j.pmk));
++    memcpy(j.bssid, request.bssid, sizeof(j.bssid));
++    bzero(&request, sizeof(request));
+     IOReturn r = core->callPlatformFunction(ITL_NATIVE_JOIN, false, &j, nullptr, nullptr, nullptr);
+     bzero(&j, sizeof(j));
+-    if (r != kIOReturnSuccess) { itlmtTrace(ctl, "assoc:core join=%x", r); return r; }
++    if (r != kIOReturnSuccess) {
++        setProperty("mt7902-join-error", "radio rejected the association request");
++        itlmtTrace(ctl, "assoc:core join=%x", r);
++        return r;
++    }
++    removeProperty("mt7902-join-error");
+     ItlNativeStatus st;
+     bzero(&st, sizeof(st));
+     queryStatus(&st);
 diff --git a/kexts/itlmt7925Native/itlmt7925_iface.h b/kexts/itlmt7925Native/itlmt7925_iface.h
 index 24a142f..53339ee 100644
 --- a/kexts/itlmt7925Native/itlmt7925_iface.h
@@ -177,7 +245,7 @@ index a6935c4..864a460 100644
      // ivars->parentInterface for it (it logs a failure at IO80211SkywalkInterface.cpp:0x1f8 otherwise), createSkywalkInterface only
      // makes it from a bus flag and passes the parent as its 4th argument. itlmt_native_role=2 keeps the old path for comparison.
 diff --git a/kexts/itlmt7925Native/kmod_info.c b/kexts/itlmt7925Native/kmod_info.c
-index 5d9d2da..3cb4850 100644
+index 5d9d2da..c3bbbd4 100644
 --- a/kexts/itlmt7925Native/kmod_info.c
 +++ b/kexts/itlmt7925Native/kmod_info.c
 @@ -8,7 +8,7 @@ extern kern_return_t _start(kmod_info_t *ki, void *data);
@@ -185,10 +253,68 @@ index 5d9d2da..3cb4850 100644
  
  __attribute__((visibility("default")))
 -KMOD_EXPLICIT_DECL(com.itlmt7925.native, "0.1.0", _start, _stop)
-+KMOD_EXPLICIT_DECL(local.x1605va.MT7902Native, "0.1.0", _start, _stop)
++KMOD_EXPLICIT_DECL(local.x1605va.MT7902Native, "0.2.1", _start, _stop)
  __private_extern__ kmod_start_func_t *_realmain = 0;
  __private_extern__ kmod_stop_func_t *_antimain = 0;
  __private_extern__ int _kext_apple_cc = __APPLE_CC__;
+diff --git a/kexts/itlmt7925Native/mt7902_join.h b/kexts/itlmt7925Native/mt7902_join.h
+new file mode 100644
+index 0000000..0347c27
+--- /dev/null
++++ b/kexts/itlmt7925Native/mt7902_join.h
+@@ -0,0 +1,52 @@
++// SPDX-License-Identifier: BSD-3-Clause-Clear
++// Tahoe WCL association fields, checked against AirportItlwm's published layout.
++#pragma once
++#include <stddef.h>
++#include <stdint.h>
++#include <string.h>
++
++struct Mt7902JoinRequest {
++    uint8_t ssidLength;
++    char ssid[33];
++    uint8_t pmk[32];
++    uint8_t bssid[6];
++};
++
++enum class Mt7902JoinResult { Ok, Invalid, Unsupported };
++
++static inline uint32_t mt7902JoinRead32(const uint8_t *p)
++{
++    return (uint32_t)p[0] | (uint32_t)p[1] << 8 |
++        (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24;
++}
++
++static inline Mt7902JoinResult mt7902DecodeJoin(const void *buffer, size_t length,
++                                              Mt7902JoinRequest *request)
++{
++    if (!request) return Mt7902JoinResult::Invalid;
++    memset(request, 0, sizeof(*request));
++    if (!buffer || length < 0x218) return Mt7902JoinResult::Invalid;
++    const uint8_t *p = static_cast<const uint8_t *>(buffer);
++    const uint32_t candidates = mt7902JoinRead32(p + 0x214);
++    const uint32_t ssidLength = mt7902JoinRead32(p + 0x1c);
++    const uint32_t keyLength = mt7902JoinRead32(p + 0x44);
++    const uint32_t cipher = mt7902JoinRead32(p + 0x48);
++    const uint32_t lowerAuth = mt7902JoinRead32(p + 0x10);
++    const uint32_t upperAuth = mt7902JoinRead32(p + 0x14);
++    if (!candidates || candidates > 10 || length < 0x218 + candidates * 18 ||
++        !ssidLength || ssidLength > 32 || keyLength > 32) return Mt7902JoinResult::Invalid;
++    const uint8_t *bssid = p + 0x21c;
++    uint8_t addressBits = 0;
++    for (unsigned i = 0; i < 6; i++) addressBits |= bssid[i];
++    if (!addressBits || (bssid[0] & 1)) return Mt7902JoinResult::Invalid;
++    // WCL supplies a derived 32-byte PMK. Cipher 7 is PMKSA, cipher 9 is MSK.
++    // Negotiate WPA2-PSK even when the AP also advertises WPA or SHA256-PSK.
++    constexpr uint32_t personal = (1u << 1) | (1u << 3) | (1u << 10);
++    if (lowerAuth != 1 || !(upperAuth & (1u << 3)) || (upperAuth & ~personal) ||
++        keyLength != 32 || (cipher != 6 && cipher != 7)) return Mt7902JoinResult::Unsupported;
++    request->ssidLength = (uint8_t)ssidLength;
++    memcpy(request->ssid, p + 0x20, ssidLength);
++    memcpy(request->pmk, p + 0x50, sizeof(request->pmk));
++    memcpy(request->bssid, bssid, sizeof(request->bssid));
++    return Mt7902JoinResult::Ok;
++}
 diff --git a/scripts/build.sh b/scripts/build.sh
 index 168a8ae..9185f8c 100644
 --- a/scripts/build.sh
@@ -237,7 +363,7 @@ index 168a8ae..9185f8c 100644
 +plutil -lint "$native/Contents/Info.plist"
 +file "$native/Contents/MacOS/itlmt7902Native"
 diff --git a/src/Info.plist b/src/Info.plist
-index 5e4e70a..dc16635 100644
+index 5e4e70a..40211c1 100644
 --- a/src/Info.plist
 +++ b/src/Info.plist
 @@ -7,7 +7,7 @@
@@ -254,10 +380,10 @@ index 5e4e70a..dc16635 100644
  	<string>KEXT</string>
  	<key>CFBundleShortVersionString</key>
 -	<string>0.2.2</string>
-+	<string>0.2.0</string>
++	<string>0.2.1</string>
  	<key>CFBundleVersion</key>
 -	<string>0.2.2</string>
-+	<string>0.2.0</string>
++	<string>0.2.1</string>
  	<key>IOKitPersonalities</key>
  	<dict>
  		<key>itlmt7922</key>
@@ -351,10 +477,21 @@ index 485c9b6..5e61376 100644
  #define ITL_HE_PKT_EXT 2
  
 diff --git a/src/itl_native_bridge.h b/src/itl_native_bridge.h
-index 2d63413..3588f46 100644
+index 2d63413..9c15b36 100644
 --- a/src/itl_native_bridge.h
 +++ b/src/itl_native_bridge.h
-@@ -87,5 +87,6 @@ struct ItlNativeStatus {
+@@ -57,8 +57,9 @@ struct ItlNativeJoin {
+     uint8_t ssidLen;
+     char ssid[33];
+     uint8_t pmk[32];
++    uint8_t bssid[6];
+ };
+-#define ITL_NATIVE_JOIN "itlmt-native-join-v1"
++#define ITL_NATIVE_JOIN "itlmt-native-join-v2"
+ // ITL_NATIVE_LEAVE, p1 unused: leave the network / abort a join in progress.
+ #define ITL_NATIVE_LEAVE "itlmt-native-leave-v1"
+ 
+@@ -87,5 +88,6 @@ struct ItlNativeStatus {
      uint8_t fastActive, fastNss, fastHe, fastBw;
      uint8_t htMcs[10];
      uint16_t vhtMcs, heMcs;
@@ -362,7 +499,7 @@ index 2d63413..3588f46 100644
  };
  #define ITL_NATIVE_STATUS "itlmt-native-status-v1"
 diff --git a/src/itlmt7922.cpp b/src/itlmt7922.cpp
-index 8f49d91..21d3723 100644
+index 8f49d91..1ec3aa8 100644
 --- a/src/itlmt7922.cpp
 +++ b/src/itlmt7922.cpp
 @@ -62,12 +62,12 @@ void itlmt7922::note(const char *fmt, uint32_t a, uint32_t b, uint32_t c)
@@ -415,7 +552,7 @@ index 8f49d91..21d3723 100644
 -    nativeMode = PE_parse_boot_argn("mt7922_native_dp", &nativeDP, sizeof(nativeDP)) && nativeDP;
 -    setProperty("port-version","0.2.2-full-experimental");
 -    setProperty("wifi-state", "off");                         // until stage 3 establishes a link
-+    setProperty("port-version","0.2.0-mt7902-native");
++    setProperty("port-version","0.2.1-mt7902-native");
 +    setProperty("wifi-state", "initializing");
  
      pci = OSDynamicCast(IOPCIDevice, provider);
@@ -480,7 +617,7 @@ index 8f49d91..21d3723 100644
      }
      if (txLock) IOLockUnlock(txLock);
 diff --git a/src/itlmt7922.hpp b/src/itlmt7922.hpp
-index c7ad163..98df4f3 100644
+index c7ad163..b1164bc 100644
 --- a/src/itlmt7922.hpp
 +++ b/src/itlmt7922.hpp
 @@ -76,9 +76,8 @@ private:
@@ -549,7 +686,15 @@ index c7ad163..98df4f3 100644
      // 100 ms; measured here: 1258 timeouts in 536 s at 100 ms = 23 % of the time with the receive path held, while a hole is
      // either filled by the AP's retry within a few ms or never. 30 ms keeps the retries and cuts the stalls.
      uint32_t reoMs = 30;
-@@ -399,7 +396,6 @@ private:
+@@ -393,13 +390,14 @@ private:
+     // target AP, captured from a beacon / probe response during the scan
+     bool tgtFound = false;
+     uint8_t tgtBssid[6] = {0};
++    uint8_t requestedBssid[6] = {0};
++    bool targetPinned = false;
+     uint8_t tgtCh = 0;
+     uint16_t tgtCap = 0, tgtBcnInt = 0;
+     uint8_t tgtIe[1024] = {0};
      uint32_t tgtIeLen = 0;
      char m1buf[3072] = {0};
      size_t m1len = 0;
@@ -557,7 +702,16 @@ index c7ad163..98df4f3 100644
      bool regPending = false;              // native mode: registerService() waits until the firmware MAC is known (publishService)
      void publishService();
      bool driverOwn();
-@@ -447,6 +443,7 @@ private:
+@@ -414,7 +412,7 @@ private:
+     // ---- runtime control: command mailbox, supervisor loop, status for the menu bar app (itlmt7922_uc.cpp) ----
+     enum { CMD_SCAN = 1, CMD_JOIN = 2, CMD_DISCONNECT = 4 };
+     // hasPmk: `pmk` is the ready pairwise master key (native Wi-Fi: userland's supplicant derived it), psk is empty then
+-    struct Net { char ssid[33]; char psk[72]; bool hasPmk; bool native; uint8_t pmk[32]; };
++    struct Net { char ssid[33]; char psk[72]; bool hasPmk; bool native; uint8_t pmk[32]; uint8_t bssid[6]; };
+     IOLock *cmdLock = nullptr;
+     volatile uint32_t cmdBits = 0;
+     Net reqNet = {};                         // the network of the last join command (under cmdLock)
+@@ -447,6 +445,7 @@ private:
      size_t evlen = 0;
      void evLog(const char *fmt, ...) __attribute__((format(printf, 2, 3)));
      uint32_t tgtLastBcnMs = 0, lastRxDataMs = 0;
@@ -824,19 +978,20 @@ index 4ddef55..bb76e42 100644
      uint8_t dev[16]={}; put16(dev+4,0); put16(dev+6,12); dev[8]=1; memcpy(dev+10,mac,6);
      rc=uniSend(1,dev,sizeof(dev),false,event,sizeof(event),&length,3000);
 diff --git a/src/itlmt7922_m3.cpp b/src/itlmt7922_m3.cpp
-index ad11950..298afe8 100644
+index ad11950..73c9797 100644
 --- a/src/itlmt7922_m3.cpp
 +++ b/src/itlmt7922_m3.cpp
-@@ -55,7 +55,7 @@ void itlmt7922::m3Publish(const char *stage)
+@@ -55,7 +55,8 @@ void itlmt7922::m3Publish(const char *stage)
  // Called by rxParseFrame for every beacon / probe response. `frame` points at the 802.11 header.
  void itlmt7922::m3Capture(const uint8_t *frame, uint32_t len, const char *ssid, uint8_t ch)
  {
 -    if (!m3On || !m3ssid[0] || len < 36 || strcmp(ssid, m3ssid) != 0) return;
 +    if (!m3ssid[0] || len < 36 || strcmp(ssid, m3ssid) != 0) return;
++    if (targetPinned && memcmp(frame + 16, requestedBssid, sizeof(requestedBssid))) return;
      // prefer 5 GHz; otherwise keep the first one seen
      if (tgtFound && !(ch > 14 && tgtCh <= 14)) return;
      tgtFound = true;
-@@ -152,7 +152,7 @@ void itlmt7922::m3Event(const uint8_t *ev, uint32_t len)
+@@ -152,7 +153,7 @@ void itlmt7922::m3Event(const uint8_t *ev, uint32_t len)
          for (uint32_t i=0;i<n;i++) text[i] = ev[46+i]>=32 && ev[46+i]<127 ? (char)ev[46+i] : '.';
          text[n]=0; m3log("fw: %s", text);
      }
@@ -845,7 +1000,7 @@ index ad11950..298afe8 100644
      if (uni && eid == UNI_ROC) {
          // Connac2 rxd36 + event hdr4 + TLV4 -> grant data44.
          uint16_t tag = (uint16_t)(ev[40] | (ev[41] << 8));
-@@ -200,20 +200,17 @@ void itlmt7922::m3ParseAp()
+@@ -200,20 +201,17 @@ void itlmt7922::m3ParseAp()
  // Features at `level` for the current AP: bit 0 A-MSDU, bit 1 HE, bit 2 160 MHz channel. Used to skip levels that change nothing.
  uint8_t itlmt7922::fastSig(uint8_t level)
  {
@@ -869,7 +1024,7 @@ index ad11950..298afe8 100644
      if (!m3fast || lvl < 1) return;
      itl_caps_parse(tgtIe, tgtIeLen, &apCaps);
      bool g2 = tgtCh <= 14;
-@@ -223,7 +220,7 @@ void itlmt7922::m3FastPlan()
+@@ -223,7 +221,7 @@ void itlmt7922::m3FastPlan()
          baLog("fast off ch=%u ht=%d", tgtCh, apCaps.ht ? 1 : 0);
          return;
      }
@@ -878,7 +1033,16 @@ index ad11950..298afe8 100644
      fastAllow160 = fastBw == 3;
      fastAmsdu = lvl >= 4 && !noAmsdu;
      fastHe = false; // HE ABI is not enabled in the first Connac2 full port.
-@@ -411,7 +408,7 @@ int itlmt7922::m3Sta(uint8_t state, bool newly, uint16_t aid)
+@@ -291,7 +289,7 @@ int itlmt7922::m3HwPrep()
+     for (unsigned i=0;i<sizeof(ch5)/sizeof(ch5[0]);i++,w+=8) put16(w,ch5[i]);
+     int rc=mcuSend(CE|0x0f,domain,(size_t)(w-domain),false,nullptr);
+     if (rc) return rc;
+-    uint8_t rx[76]={}; rx[0]=rx[1]=tgtCh?tgtCh:1; rx[3]=2; rx[4]=3;
++    uint8_t rx[76]={}; rx[0]=rx[1]=tgtCh?tgtCh:1; rx[3]=1; rx[4]=1;
+     rx[10]=rx[0]>14?1:0;
+     rc=mcuSend(0x4eed,rx,sizeof(rx),true,nullptr);
+     if (rc) return rc;
+@@ -411,7 +409,7 @@ int itlmt7922::m3Sta(uint8_t state, bool newly, uint16_t aid)
      p[7]=ht?apCaps.ampduParm:0;
      p[9]=tgtRssi<0 && tgtRssi>=-110?(uint8_t)(2*(tgtRssi+110)):100;
      uint8_t *ra=m.tlv(1,16); put16(ra+4,(uint16_t)(apSupp<<6)|(g2?apCck:0));
@@ -887,7 +1051,40 @@ index ad11950..298afe8 100644
      uint8_t *st=m.tlv(7,12); st[8]=state;
      if (ht&&apCaps.vht) st[9]=(uint8_t)(fastBw|((fastNss?fastNss-1:0)<<4));
      // STA_REC_WTBL nests its own header and count; Connac3 direct HDR_TRANS/MLD are invalid here.
-@@ -691,12 +688,12 @@ int itlmt7922::m3Run1()
+@@ -613,6 +611,8 @@ int itlmt7922::m3Run1()
+         for (int k = 0; k < no && sel < 0 && !shouldStop() && !firmwareFault && !cmdPending(CMD_JOIN | CMD_DISCONNECT); k++) {
+             int i = order[k];
+             strlcpy(m3ssid, nets[i].ssid, sizeof(m3ssid));
++            targetPinned = nets[i].native;
++            memcpy(requestedBssid, nets[i].bssid, sizeof(requestedBssid));
+             tgtFound = false;
+             m3log("scan #%d for net%d (directed)", attempt, i + 1);
+             m2Scan(m3ssid);
+@@ -664,6 +664,12 @@ int itlmt7922::m3Run1()
+     m3Publish(rc ? "auth-fail" : "auth-ok");
+     if (!rc) {
+         m3reachedAssoc = true;
++        // MCU waits and the association poll both drain RX. Preserve an M1 that
++        // arrives immediately after the AP sends its association response.
++        m3dataOn = true;
++        m3wantEapol = true;
++        m3hsApLeave = false;
++        m3hsApReason = 0;
+         rc = m3Assoc();
+         m3Publish(rc ? "assoc-fail" : "assoc-ok");
+     }
+@@ -673,9 +679,9 @@ int itlmt7922::m3Run1()
+         rc=m3Bss(true);
+         if (!rc) rc=m3Sta(2,false,m3aid);
+         if (!rc) rc=m3Handshake();
+-        m3wantEapol = false;
+         m3Publish(rc ? "hs-fail" : "hs-ok");
+     }
++    m3wantEapol = false;
+     m3Roc(false);
+     bzero(m3pmk, sizeof(m3pmk));
+     if (!rc) {
+@@ -691,12 +697,12 @@ int itlmt7922::m3Run1()
      return rc;
  }
  
@@ -902,7 +1099,20 @@ index ad11950..298afe8 100644
      lvl = m3fast ? (fastLevel < lvlCap ? fastLevel : lvlCap) : 0;
      for (; !shouldStop() && !firmwareFault;) {
          int rc = m3Run1();
-@@ -1234,6 +1231,7 @@ void itlmt7922::m3Link()
+@@ -1050,10 +1056,8 @@ int itlmt7922::m3Handshake()
+     bzero(zero, sizeof(zero));
+     read_random(snonce, sizeof(snonce));
+     m3dataOn = true;
+-    m3eapolLen = 0;
+-    m3eapolHead = m3eapolTail = m3eapolDrops = 0;
+-    m3hsApLeave = false;
+-    m3hsApReason = 0;
++    // The receive queue was armed before association. An early M1 may already
++    // be queued while BSS/STA commands wait for firmware responses.
+     removeProperty("wifi-pmkid-match");
+     removeProperty("wifi-handshake");
+     m3wantEapol = true;
+@@ -1234,6 +1238,7 @@ void itlmt7922::m3Link()
      linkUpMs = t0;
      lastReorderMs = t0;
      m3lost = false;
@@ -911,7 +1121,7 @@ index ad11950..298afe8 100644
      lastRxDataMs = t0;
      tgtRssi = 0;
 diff --git a/src/itlmt7922_uc.cpp b/src/itlmt7922_uc.cpp
-index 6738c4c..dbc1d80 100644
+index 6738c4c..5c75800 100644
 --- a/src/itlmt7922_uc.cpp
 +++ b/src/itlmt7922_uc.cpp
 @@ -113,7 +113,7 @@ IOReturn itlmt7922::newUserClient(task_t owningTask, void *securityID, UInt32 ty
@@ -950,16 +1160,28 @@ index 6738c4c..dbc1d80 100644
      IOLockLock(cmdLock);
      uint32_t now = nowMs();
      if ((cmdBits & CMD_SCAN) || __atomic_load_n(&scanBusy, __ATOMIC_ACQUIRE)) *started = 1;      // join the queued / running scan
-@@ -276,7 +276,7 @@ IOReturn itlmt7922::nativeScanReq(uint32_t *started)
+@@ -276,14 +276,18 @@ IOReturn itlmt7922::nativeScanReq(uint32_t *started)
  
  IOReturn itlmt7922::nativeJoin(const ItlNativeJoin *j)
  {
 -    if (shouldStop() || !m3On || !cmdLock || !wstate[0]) return kIOReturnNotReady;
+-    if (!j || j->version != 1 || !j->ssidLen || j->ssidLen > 32) return kIOReturnBadArgument;
 +    if (shouldStop() || !cmdLock || !wstate[0]) return kIOReturnNotReady;
-     if (!j || j->version != 1 || !j->ssidLen || j->ssidLen > 32) return kIOReturnBadArgument;
++    if (!j || j->version != 2 || !j->ssidLen || j->ssidLen > 32) return kIOReturnBadArgument;
++    uint8_t addressBits = 0;
++    for (unsigned i = 0; i < sizeof(j->bssid); i++) addressBits |= j->bssid[i];
++    if (!addressBits || (j->bssid[0] & 1)) return kIOReturnBadArgument;
      IOLockLock(cmdLock);
      bzero(&reqNet, sizeof(reqNet));
-@@ -315,6 +315,7 @@ void itlmt7922::nativeStatus(ItlNativeStatus *s)
+     memcpy(reqNet.ssid, j->ssid, j->ssidLen);
+     memcpy(reqNet.pmk, j->pmk, sizeof(reqNet.pmk));
+     reqNet.hasPmk = true;
+     reqNet.native = true;
++    memcpy(reqNet.bssid, j->bssid, sizeof(reqNet.bssid));
+     njFail = 0;
+     njState = ITL_NATIVE_CONNECTING;
+     njSeq++;
+@@ -315,6 +319,7 @@ void itlmt7922::nativeStatus(ItlNativeStatus *s)
  {
      bzero(s, sizeof(*s));
      s->version = 1;
@@ -967,7 +1189,7 @@ index 6738c4c..dbc1d80 100644
      uint32_t st = njState;
      // a join in progress hides an old link that is still being torn down
      s->state = st == ITL_NATIVE_CONNECTING ? ITL_NATIVE_CONNECTING
-@@ -454,6 +455,7 @@ void itlmt7922::apSeen(const uint8_t *p, uint32_t len, uint32_t off, const char
+@@ -454,6 +459,7 @@ void itlmt7922::apSeen(const uint8_t *p, uint32_t len, uint32_t off, const char
      int8_t rssi = rxRssi(p, len, off);
      if (m3linkUp && !memcmp(bssid, tgtBssid, 6)) {
          tgtLastBcnMs = now ? now : 1;
@@ -975,7 +1197,7 @@ index 6738c4c..dbc1d80 100644
          if (rssi) tgtRssi = tgtRssi ? (int8_t)((tgtRssi * 3 + rssi) / 4) : rssi;
      }
      int k = -1;
-@@ -524,13 +526,15 @@ bool itlmt7922::apInRange(const char *ssid, uint32_t maxAgeMs)
+@@ -524,13 +530,15 @@ bool itlmt7922::apInRange(const char *ssid, uint32_t maxAgeMs)
  void itlmt7922::m3Supervise()
  {
      Net boot[4] = {};
@@ -993,7 +1215,7 @@ index 6738c4c..dbc1d80 100644
      while (!shouldStop()) {
          if (firmwareFault) {
 diff --git a/src/kmod_info.c b/src/kmod_info.c
-index 4a60c13..7d18e85 100644
+index 4a60c13..a96f7f6 100644
 --- a/src/kmod_info.c
 +++ b/src/kmod_info.c
 @@ -8,7 +8,7 @@ extern kern_return_t _start(kmod_info_t *ki, void *data);
@@ -1001,7 +1223,7 @@ index 4a60c13..7d18e85 100644
  
  __attribute__((visibility("default")))
 -KMOD_EXPLICIT_DECL(local.experimental.itlmt7922, "0.2.2", _start, _stop)
-+KMOD_EXPLICIT_DECL(local.x1605va.MT7902WiFi, "0.2.0", _start, _stop)
++KMOD_EXPLICIT_DECL(local.x1605va.MT7902WiFi, "0.2.1", _start, _stop)
  __private_extern__ kmod_start_func_t *_realmain = 0;
  __private_extern__ kmod_stop_func_t *_antimain = 0;
  __private_extern__ int _kext_apple_cc = __APPLE_CC__;
@@ -1123,3 +1345,86 @@ index 4b86324..6414a68 100644
  
      printf(fails ? "%d FAILED\n" : "all passed\n", fails);
      return fails ? 1 : 0;
+diff --git a/tests/native_join_test.cpp b/tests/native_join_test.cpp
+new file mode 100644
+index 0000000..0bf2674
+--- /dev/null
++++ b/tests/native_join_test.cpp
+@@ -0,0 +1,77 @@
++// SPDX-License-Identifier: BSD-3-Clause-Clear
++#include "../kexts/itlmt7925Native/mt7902_join.h"
++#include <stdio.h>
++#include <stdlib.h>
++
++static void check(bool passed, int line)
++{
++    if (passed) return;
++    fprintf(stderr, "Native join check failed at line %d\n", line);
++    exit(1);
++}
++#define CHECK(condition) check((condition), __LINE__)
++
++static void put32(uint8_t *p, uint32_t value)
++{
++    for (unsigned i = 0; i < 4; i++) p[i] = (uint8_t)(value >> (8 * i));
++}
++
++int main()
++{
++    uint8_t wire[0x2cc] = {};
++    put32(wire + 0x10, 1);
++    put32(wire + 0x14, 8);
++    put32(wire + 0x1c, 4);
++    memcpy(wire + 0x20, "test", 4);
++    put32(wire + 0x44, 32);
++    put32(wire + 0x48, 7);
++    for (unsigned i = 0; i < 32; i++) wire[0x50 + i] = (uint8_t)(i + 1);
++    put32(wire + 0x214, 1);
++    const uint8_t bssid[6] = {0x02, 0x10, 0x20, 0x30, 0x40, 0x50};
++    memcpy(wire + 0x21c, bssid, sizeof(bssid));
++    Mt7902JoinRequest request = {};
++    CHECK(mt7902DecodeJoin(wire, sizeof(wire), &request) == Mt7902JoinResult::Ok);
++    CHECK(request.ssidLength == 4 && !strcmp(request.ssid, "test"));
++    CHECK(!memcmp(request.pmk, wire + 0x50, 32));
++    CHECK(!memcmp(request.bssid, bssid, 6));
++
++    put32(wire + 0x48, 6);
++    CHECK(mt7902DecodeJoin(wire, sizeof(wire), &request) == Mt7902JoinResult::Ok);
++    put32(wire + 0x48, 9);
++    CHECK(mt7902DecodeJoin(wire, sizeof(wire), &request) == Mt7902JoinResult::Unsupported);
++    for (uint8_t byte : request.pmk) CHECK(byte == 0);
++    put32(wire + 0x48, 7);
++    put32(wire + 0x14, 8 | 2 | 1024);
++    CHECK(mt7902DecodeJoin(wire, sizeof(wire), &request) == Mt7902JoinResult::Ok);
++    put32(wire + 0x14, 4);
++    CHECK(mt7902DecodeJoin(wire, sizeof(wire), &request) == Mt7902JoinResult::Unsupported);
++    put32(wire + 0x14, 8);
++    put32(wire + 0x44, 31);
++    CHECK(mt7902DecodeJoin(wire, sizeof(wire), &request) == Mt7902JoinResult::Unsupported);
++    put32(wire + 0x44, 33);
++    CHECK(mt7902DecodeJoin(wire, sizeof(wire), &request) == Mt7902JoinResult::Invalid);
++    put32(wire + 0x44, 32);
++    put32(wire + 0x1c, 32);
++    memset(wire + 0x20, 's', 32);
++    CHECK(mt7902DecodeJoin(wire, sizeof(wire), &request) == Mt7902JoinResult::Ok);
++    CHECK(request.ssid[32] == 0);
++    put32(wire + 0x1c, 33);
++    CHECK(mt7902DecodeJoin(wire, sizeof(wire), &request) == Mt7902JoinResult::Invalid);
++    put32(wire + 0x1c, 4);
++    for (size_t length = 0; length < 0x22a; length++)
++        CHECK(mt7902DecodeJoin(wire, length, &request) == Mt7902JoinResult::Invalid);
++    put32(wire + 0x214, 10);
++    CHECK(mt7902DecodeJoin(wire, sizeof(wire), &request) == Mt7902JoinResult::Ok);
++    put32(wire + 0x214, 11);
++    CHECK(mt7902DecodeJoin(wire, sizeof(wire), &request) == Mt7902JoinResult::Invalid);
++    put32(wire + 0x214, 0);
++    CHECK(mt7902DecodeJoin(wire, sizeof(wire), &request) == Mt7902JoinResult::Invalid);
++    put32(wire + 0x214, 1);
++    memset(wire + 0x21c, 0, 6);
++    CHECK(mt7902DecodeJoin(wire, sizeof(wire), &request) == Mt7902JoinResult::Invalid);
++    wire[0x21c] = 1;
++    CHECK(mt7902DecodeJoin(wire, sizeof(wire), &request) == Mt7902JoinResult::Invalid);
++    CHECK(mt7902DecodeJoin(nullptr, 0, &request) == Mt7902JoinResult::Invalid);
++    CHECK(mt7902DecodeJoin(wire, sizeof(wire), nullptr) == Mt7902JoinResult::Invalid);
++    puts("Native join decoder passed PMK/PMKSA, BSSID, authentication, length, and truncation checks.");
++}

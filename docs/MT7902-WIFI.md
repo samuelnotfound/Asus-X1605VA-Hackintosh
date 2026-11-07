@@ -14,7 +14,7 @@ For an offline build, set `MT7902_ARCHIVES` to the directory containing the
 four pinned archives `port.tar.gz`, `native.tar.gz`, `firmware.tar.gz`, and
 `sdk.tar.gz`.
 
-Use a copy of your working EFI and add both entries under OpenCore
+To integrate this package into an EFI, add both entries under OpenCore
 `Kernel > Add`, in the order shown. Set `Arch` to `x86_64`, `Enabled` to
 `true`, and `PlistPath` to `Contents/Info.plist` for each entry.
 
@@ -49,6 +49,27 @@ The frontend matches on that property and gets the same station address the
 radio uses on air. Build checks cover the two kext bundles and PCI personality.
 Association, DHCP, and traffic on the MT7902 require a hardware run.
 
+## Connection changes in 0.2.1
+
+The frontend accepts WPA2-Personal PMK and PMKSA key types 6 and 7, matching
+AirportItlwm's join decoder. It validates and forwards the BSSID selected by
+macOS instead of selecting another access point with the same SSID.
+EAPOL reception starts before the association exchange, and the handshake
+preserves frames received while the firmware BSS and station records are
+updated. The MT7902 RX-path command uses one transmit stream and one receive
+chain, following the Linux firmware command layout.
+
+For a failed join, the frontend records `mt7902-join-error`,
+`mt7902-join-key-cipher`, and `mt7902-join-key-length`. These fields contain
+protocol metadata. The radio's `m3-res`, `wifi-error`, and `wifi-handshake`
+properties show the failing connection operation and the received EAPOL
+messages. Capture them after one connection attempt.
+
+```sh
+ioreg -r -c itlmt7925WifiInterface -d 1 -l -w0 | grep -E 'mt7902-join-'
+ioreg -r -c itlmt7922 -d 1 -l -w0 | grep -E 'port-version|m3-res|wifi-error|wifi-handshake|wifi-pmkid-match'
+```
+
 ## REA analysis and source references
 
 - REA 6.8.0 with Rizin 0.9.1 ran `af` and `pdfj` on the shipped Intel Tahoe
@@ -64,6 +85,13 @@ Association, DHCP, and traffic on the MT7902 require a hardware run.
   MT7902 frontend and radio now build against one bridge header and share the
   beacon counter used for macOS link quality events.
   [Radio base](https://github.com/hbyonly1/itlmt7922-wifi/tree/20aaac5c8e1d97d737a73f1a684ded2ec1d0f940) · [Tahoe frontend and headers](https://github.com/thanhnndev/ga403wm-hackintosh/tree/ee3131f6212c3b5fe946944e13c116578479161e)
+- For the failed native join, REA disassembled the deployed frontend at
+  `0x7d50` and confirmed its comparisons against key types 6 and 9. It
+  traced the Intel release's `beginWCLJoin` at `0x3af90` and
+  `startWCLJoin` at `0x3bd40`, and the MT7902 radio's `m3Handshake` at
+  `0xbb50`. The Intel source accepts personal PMK types 6 and 7. Its
+  published decoder also preserves the selected candidate's BSSID.
+  [Intel WCL protocol decoder](https://github.com/laobamac/itlwm/blob/7204c69d1bfa7f5cc0f7864e08fb03e55d0ec29e/AirportItlwm/WCL/WCL.hpp)
 - The radio follows Linux's MT7902 PCIe layout, including MCU TX ring 15,
   firmware TX ring 16, shared RX event ring 0, and MT7902 WFDMA prefetch
   settings. The build checks the two embedded firmware files by SHA-256.
