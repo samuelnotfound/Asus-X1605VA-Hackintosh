@@ -45,7 +45,7 @@ The parent project maintains the Iris Xe patches. Follow its guide for graphics 
 | Internal microphone | Working |
 | Trackpad in macOS | Working with the patched VoodooI2C beta and VoodooI2CHID. [VoodooI2C fork](https://github.com/samuelnotfound/VoodooI2C) |
 | Trackpad in the OpenCore picker | Working with the custom ASUS UEFI driver. [Picker driver source](src/AsusX1605VATouchpadDxe) |
-| Battery and FN keys  Working |
+| Battery and FN keys | Working |
 | Screen brightness | Adjustable with the XeShim utility. |
 | Wi-Fi | Unsupported on MediaTek. Working on Realtek |
 | Bluetooth | Working on MediaTek. Realtek Bluetooth is untested |
