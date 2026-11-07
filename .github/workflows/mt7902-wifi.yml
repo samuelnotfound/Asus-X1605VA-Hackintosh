@@ -26,6 +26,7 @@ jobs:
             tests/native_join_test.cpp -o build/native_join_test
           build/native_join_test
           bash tests/run_protocol_tests.sh
+          bash tests/run_codec_tests.sh
           kext=build/itlmt7922.kext
           native=build/itlmt7902Native.kext
           xcrun lipo "$kext/Contents/MacOS/itlmt7922" -verify_arch x86_64

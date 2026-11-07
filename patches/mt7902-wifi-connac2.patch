@@ -1,5 +1,5 @@
 diff --git a/kexts/itlmt7925Native/Info.plist b/kexts/itlmt7925Native/Info.plist
-index 8e89979..d21f8a3 100644
+index 8e89979..16ef869 100644
 --- a/kexts/itlmt7925Native/Info.plist
 +++ b/kexts/itlmt7925Native/Info.plist
 @@ -3,26 +3,27 @@
@@ -16,8 +16,8 @@ index 8e89979..d21f8a3 100644
  	<key>CFBundlePackageType</key><string>KEXT</string>
 -	<key>CFBundleShortVersionString</key><string>0.1.0</string>
 -	<key>CFBundleVersion</key><string>0.1.0</string>
-+	<key>CFBundleShortVersionString</key><string>0.2.1</string>
-+	<key>CFBundleVersion</key><string>0.2.1</string>
++	<key>CFBundleShortVersionString</key><string>0.2.2</string>
++	<key>CFBundleVersion</key><string>0.2.2</string>
  	<key>IOKitPersonalities</key>
  	<dict>
  		<key>itlmt7925Wifi</key>
@@ -34,7 +34,7 @@ index 8e89979..d21f8a3 100644
  	<key>OSBundleLibraries</key>
  	<dict>
 -		<key>com.itlmt7925.kext</key><string>0.1.0</string>
-+		<key>local.x1605va.MT7902WiFi</key><string>0.2.1</string>
++		<key>local.x1605va.MT7902WiFi</key><string>0.2.2</string>
  		<key>com.apple.iokit.IO80211Family</key><string>1200.13.1</string>
  		<key>com.apple.iokit.IOSkywalkFamily</key><string>1.0</string>
  		<key>com.apple.driver.corecapture</key><string>1.0.4</string>
@@ -245,7 +245,7 @@ index a6935c4..864a460 100644
      // ivars->parentInterface for it (it logs a failure at IO80211SkywalkInterface.cpp:0x1f8 otherwise), createSkywalkInterface only
      // makes it from a bus flag and passes the parent as its 4th argument. itlmt_native_role=2 keeps the old path for comparison.
 diff --git a/kexts/itlmt7925Native/kmod_info.c b/kexts/itlmt7925Native/kmod_info.c
-index 5d9d2da..c3bbbd4 100644
+index 5d9d2da..7742352 100644
 --- a/kexts/itlmt7925Native/kmod_info.c
 +++ b/kexts/itlmt7925Native/kmod_info.c
 @@ -8,7 +8,7 @@ extern kern_return_t _start(kmod_info_t *ki, void *data);
@@ -253,7 +253,7 @@ index 5d9d2da..c3bbbd4 100644
  
  __attribute__((visibility("default")))
 -KMOD_EXPLICIT_DECL(com.itlmt7925.native, "0.1.0", _start, _stop)
-+KMOD_EXPLICIT_DECL(local.x1605va.MT7902Native, "0.2.1", _start, _stop)
++KMOD_EXPLICIT_DECL(local.x1605va.MT7902Native, "0.2.2", _start, _stop)
  __private_extern__ kmod_start_func_t *_realmain = 0;
  __private_extern__ kmod_stop_func_t *_antimain = 0;
  __private_extern__ int _kext_apple_cc = __APPLE_CC__;
@@ -363,7 +363,7 @@ index 168a8ae..9185f8c 100644
 +plutil -lint "$native/Contents/Info.plist"
 +file "$native/Contents/MacOS/itlmt7902Native"
 diff --git a/src/Info.plist b/src/Info.plist
-index 5e4e70a..40211c1 100644
+index 5e4e70a..aca4551 100644
 --- a/src/Info.plist
 +++ b/src/Info.plist
 @@ -7,7 +7,7 @@
@@ -375,17 +375,7 @@ index 5e4e70a..40211c1 100644
  	<key>CFBundleInfoDictionaryVersion</key>
  	<string>6.0</string>
  	<key>CFBundleName</key>
-@@ -15,19 +15,19 @@
- 	<key>CFBundlePackageType</key>
- 	<string>KEXT</string>
- 	<key>CFBundleShortVersionString</key>
--	<string>0.2.2</string>
-+	<string>0.2.1</string>
- 	<key>CFBundleVersion</key>
--	<string>0.2.2</string>
-+	<string>0.2.1</string>
- 	<key>IOKitPersonalities</key>
- 	<dict>
+@@ -23,11 +23,11 @@
  		<key>itlmt7922</key>
  		<dict>
  			<key>CFBundleIdentifier</key>
@@ -499,7 +489,7 @@ index 2d63413..9c15b36 100644
  };
  #define ITL_NATIVE_STATUS "itlmt-native-status-v1"
 diff --git a/src/itlmt7922.cpp b/src/itlmt7922.cpp
-index 8f49d91..1ec3aa8 100644
+index 8f49d91..fd35a58 100644
 --- a/src/itlmt7922.cpp
 +++ b/src/itlmt7922.cpp
 @@ -62,12 +62,12 @@ void itlmt7922::note(const char *fmt, uint32_t a, uint32_t b, uint32_t c)
@@ -552,7 +542,7 @@ index 8f49d91..1ec3aa8 100644
 -    nativeMode = PE_parse_boot_argn("mt7922_native_dp", &nativeDP, sizeof(nativeDP)) && nativeDP;
 -    setProperty("port-version","0.2.2-full-experimental");
 -    setProperty("wifi-state", "off");                         // until stage 3 establishes a link
-+    setProperty("port-version","0.2.1-mt7902-native");
++    setProperty("port-version","0.2.2-mt7902-native");
 +    setProperty("wifi-state", "initializing");
  
      pci = OSDynamicCast(IOPCIDevice, provider);
@@ -978,7 +968,7 @@ index 4ddef55..bb76e42 100644
      uint8_t dev[16]={}; put16(dev+4,0); put16(dev+6,12); dev[8]=1; memcpy(dev+10,mac,6);
      rc=uniSend(1,dev,sizeof(dev),false,event,sizeof(event),&length,3000);
 diff --git a/src/itlmt7922_m3.cpp b/src/itlmt7922_m3.cpp
-index ad11950..73c9797 100644
+index ad11950..a39da98 100644
 --- a/src/itlmt7922_m3.cpp
 +++ b/src/itlmt7922_m3.cpp
 @@ -55,7 +55,8 @@ void itlmt7922::m3Publish(const char *stage)
@@ -1042,6 +1032,15 @@ index ad11950..73c9797 100644
      rx[10]=rx[0]>14?1:0;
      rc=mcuSend(0x4eed,rx,sizeof(rx),true,nullptr);
      if (rc) return rc;
+@@ -343,7 +341,7 @@ int itlmt7922::m3Bss(bool enable)
+     // Connac2 RLM uses short_st@10, ht_op_info@11, sco@12, Linux band@13.
+     m.init(4); m.b[0]=M3_BSS_IDX;
+     uint8_t *r=m.tlv(2,16); r[4]=tgtCh; r[5]=fastActive?fastCenter:tgtCh;
+-    r[7]=fastActive?fastBw:0; r[8]=fastActive?2:1; r[9]=fastActive?3:1;
++    r[7]=fastActive?fastBw:0; r[8]=1; r[9]=1; // MT7902: one TX stream, RX chain mask BIT(0).
+     r[10]=1; r[11]=r[7]?4:0; r[12]=r[4]<r[5]?1:r[4]>r[5]?3:0; r[13]=g2?0:1;
+     m.b[2]=m.b[3]=0;
+     rc=m3Cmd(UNI_BSS_INFO_UPDATE,m.b,m.n,"bss(rlm)");
 @@ -411,7 +409,7 @@ int itlmt7922::m3Sta(uint8_t state, bool newly, uint16_t aid)
      p[7]=ht?apCaps.ampduParm:0;
      p[9]=tgtRssi<0 && tgtRssi>=-110?(uint8_t)(2*(tgtRssi+110)):100;
@@ -1051,7 +1050,57 @@ index ad11950..73c9797 100644
      uint8_t *st=m.tlv(7,12); st[8]=state;
      if (ht&&apCaps.vht) st[9]=(uint8_t)(fastBw|((fastNss?fastNss-1:0)<<4));
      // STA_REC_WTBL nests its own header and count; Connac3 direct HDR_TRANS/MLD are invalid here.
-@@ -613,6 +611,8 @@ int itlmt7922::m3Run1()
+@@ -499,13 +497,22 @@ bool itlmt7922::m3Xchg(const uint8_t *frame, uint32_t len, uint8_t subtype, uint
+     m3rxLen = 0;
+     m3wantFc = wantFc;
+     bool got = false;
++    uint32_t attempts = 0, queued = 0;
++    const uint32_t rxBefore = rxPkts, freeBefore = stTxFree, failBefore = stTxFwFail;
+     for (int attempt = 1; attempt <= 4 && !got && !shouldStop() && !firmwareFault; attempt++) {
+         bool ok = m3Tx(frame, len, 0, subtype);
++        attempts++;
++        if (ok) queued++;
+         m3log("tx %02x len=%u #%d %s", frame[0], len, attempt, ok ? "queued" : "FAILED");
+         for (uint32_t i = 0; i < waitMs && !m3rxLen && !shouldStop() && !firmwareFault; i++) m3Pump(1);
+         got = m3rxLen != 0;
+     }
+     m3wantFc = 0;
++    char summary[200];
++    snprintf(summary, sizeof(summary), "fc=%02x attempts=%u queued=%u response=%u rx=%u txFree=%u txFail=%u txcpu=%u txdma=%u fault=%u stopped=%u",
++             wantFc, attempts, queued, got, rxPkts-rxBefore, stTxFree-freeBefore, stTxFwFail-failBefore,
++             txData.head, rd(txData.regs + Q_DMA_IDX) & 0xffff, firmwareFault ? 1u : 0u, shouldStop() ? 1u : 0u);
++    setProperty("wifi-mgmt", summary);
+     if (!got) m3log("no response fc=%02x rxpk=%u txcpu=%u txdma=%u", wantFc, rxPkts, txData.head, rd(txData.regs + Q_DMA_IDX) & 0xffff);
+     return got;
+ }
+@@ -526,10 +533,16 @@ int itlmt7922::m3Auth()
+     put16(f + 24, 0);                                            // open system
+     put16(f + 26, 1);                                            // transaction 1
+     put16(f + 28, 0);
+-    if (!m3Xchg(f, sizeof(f), 11, 0xb0, 150)) return ITL_TIMEOUT;
++    if (!m3Xchg(f, sizeof(f), 11, 0xb0, 150)) {
++        setProperty("wifi-auth-result", "no accepted authentication response; see wifi-mgmt");
++        return ITL_TIMEOUT;
++    }
+     uint16_t alg = (uint16_t)(m3rx[24] | (m3rx[25] << 8)), seq = (uint16_t)(m3rx[26] | (m3rx[27] << 8)),
+              st = (uint16_t)(m3rx[28] | (m3rx[29] << 8));
+     m3log("auth resp alg=%u seq=%u status=%u", alg, seq, st);
++    char result[100];
++    snprintf(result, sizeof(result), "algorithm=%u transaction=%u ieee-status=%u", alg, seq, st);
++    setProperty("wifi-auth-result", result);
+     return (alg == 0 && seq == 2 && st == 0) ? 0 : ITL_EIO;
+ }
+ 
+@@ -583,6 +596,8 @@ int itlmt7922::m3Run1()
+     m3eapolLen = 0;
+     m3eapolHead = m3eapolTail = m3eapolDrops = 0;
+     m3rxLen = 0;
++    removeProperty("wifi-auth-result");
++    removeProperty("wifi-mgmt");
+     fastActive = false;
+     txPool = true;
+ 
+@@ -613,6 +628,8 @@ int itlmt7922::m3Run1()
          for (int k = 0; k < no && sel < 0 && !shouldStop() && !firmwareFault && !cmdPending(CMD_JOIN | CMD_DISCONNECT); k++) {
              int i = order[k];
              strlcpy(m3ssid, nets[i].ssid, sizeof(m3ssid));
@@ -1060,7 +1109,7 @@ index ad11950..73c9797 100644
              tgtFound = false;
              m3log("scan #%d for net%d (directed)", attempt, i + 1);
              m2Scan(m3ssid);
-@@ -664,6 +664,12 @@ int itlmt7922::m3Run1()
+@@ -664,6 +681,12 @@ int itlmt7922::m3Run1()
      m3Publish(rc ? "auth-fail" : "auth-ok");
      if (!rc) {
          m3reachedAssoc = true;
@@ -1073,7 +1122,7 @@ index ad11950..73c9797 100644
          rc = m3Assoc();
          m3Publish(rc ? "assoc-fail" : "assoc-ok");
      }
-@@ -673,9 +679,9 @@ int itlmt7922::m3Run1()
+@@ -673,9 +696,9 @@ int itlmt7922::m3Run1()
          rc=m3Bss(true);
          if (!rc) rc=m3Sta(2,false,m3aid);
          if (!rc) rc=m3Handshake();
@@ -1084,7 +1133,7 @@ index ad11950..73c9797 100644
      m3Roc(false);
      bzero(m3pmk, sizeof(m3pmk));
      if (!rc) {
-@@ -691,12 +697,12 @@ int itlmt7922::m3Run1()
+@@ -691,12 +714,12 @@ int itlmt7922::m3Run1()
      return rc;
  }
  
@@ -1099,7 +1148,7 @@ index ad11950..73c9797 100644
      lvl = m3fast ? (fastLevel < lvlCap ? fastLevel : lvlCap) : 0;
      for (; !shouldStop() && !firmwareFault;) {
          int rc = m3Run1();
-@@ -1050,10 +1056,8 @@ int itlmt7922::m3Handshake()
+@@ -1050,10 +1073,8 @@ int itlmt7922::m3Handshake()
      bzero(zero, sizeof(zero));
      read_random(snonce, sizeof(snonce));
      m3dataOn = true;
@@ -1112,7 +1161,7 @@ index ad11950..73c9797 100644
      removeProperty("wifi-pmkid-match");
      removeProperty("wifi-handshake");
      m3wantEapol = true;
-@@ -1234,6 +1238,7 @@ void itlmt7922::m3Link()
+@@ -1234,6 +1255,7 @@ void itlmt7922::m3Link()
      linkUpMs = t0;
      lastReorderMs = t0;
      m3lost = false;
@@ -1120,8 +1169,32 @@ index ad11950..73c9797 100644
      tgtLastBcnMs = 0;                                        // beacon watch is armed by the first beacon of this link
      lastRxDataMs = t0;
      tgtRssi = 0;
+diff --git a/src/itlmt7922_txrx.cpp b/src/itlmt7922_txrx.cpp
+index 35aea0d..e6175ba 100644
+--- a/src/itlmt7922_txrx.cpp
++++ b/src/itlmt7922_txrx.cpp
+@@ -75,7 +75,9 @@ bool itlmt7922::m3Tx(const uint8_t *frame, uint32_t len, uint8_t type,
+     options.sequence = (int16_t)o.sn;
+     options.queue = o.rateAdapt && type == 2 ? 1 : o.qidx; // AC_BE -> LMAC AC01, independent of BA level.
+     options.tid = o.tid & 7;
+-    options.spe_index = 24; // Connac2 duplicate WF0+WF1 fixed-rate path.
++    // mt76_connac2_mac_write_txwi only sets SPE_IDX when !is_connac2().
++    // MT7902 is Connac2: leave antenna selection to its firmware/WTBL.
++    options.spe_index = 0;
+     options.rate_adapt = o.rateAdapt;
+     options.protect = o.protect;
+     options.aggregate = o.aggr;
+@@ -102,7 +104,7 @@ bool itlmt7922::m3RxMgmt(const uint8_t *p, uint32_t len)
+ {
+     Mt7922RxView view = {};
+     if (mt7922_parse_rx_normal(p, len, &view) != MT7922_RX_OK ||
+-        view.frame_length < 24 || m3rxLen || !m3wantFc) return false;
++        view.frame_length < 30 || m3rxLen || !m3wantFc) return false;
+     const uint8_t *f = p + view.frame_offset;
+     if (f[0] != m3wantFc || (f[1] & 0x47) || (f[22] & 15) || view.fragmented || memcmp(f + 4, mac, 6) ||
+         memcmp(f + 10, tgtBssid, 6) || memcmp(f + 16, tgtBssid, 6)) return false;
 diff --git a/src/itlmt7922_uc.cpp b/src/itlmt7922_uc.cpp
-index 6738c4c..5c75800 100644
+index 6738c4c..482f588 100644
 --- a/src/itlmt7922_uc.cpp
 +++ b/src/itlmt7922_uc.cpp
 @@ -113,7 +113,7 @@ IOReturn itlmt7922::newUserClient(task_t owningTask, void *securityID, UInt32 ty
@@ -1197,6 +1270,15 @@ index 6738c4c..5c75800 100644
          if (rssi) tgtRssi = tgtRssi ? (int8_t)((tgtRssi * 3 + rssi) / 4) : rssi;
      }
      int k = -1;
+@@ -507,7 +513,7 @@ static const char *failText(const char *stage)
+     if (!strncmp(stage, "nocred", 6)) return "no network configured";
+     if (!strncmp(stage, "scan", 4)) return "network not found";
+     if (!strncmp(stage, "roc-fail", 8)) return "radio did not get the channel";
+-    if (!strncmp(stage, "auth-fail", 9)) return "the access point refused authentication";
++    if (!strncmp(stage, "auth-fail", 9)) return "802.11 authentication failed; see wifi-auth-result and wifi-mgmt";
+     if (!strncmp(stage, "assoc-fail", 10)) return "the access point refused association";
+     if (!strncmp(stage, "hs-fail", 7)) return "key handshake failed";
+     return "connection failed";
 @@ -524,13 +530,15 @@ bool itlmt7922::apInRange(const char *ssid, uint32_t maxAgeMs)
  void itlmt7922::m3Supervise()
  {
@@ -1215,7 +1297,7 @@ index 6738c4c..5c75800 100644
      while (!shouldStop()) {
          if (firmwareFault) {
 diff --git a/src/kmod_info.c b/src/kmod_info.c
-index 4a60c13..a96f7f6 100644
+index 4a60c13..76368ce 100644
 --- a/src/kmod_info.c
 +++ b/src/kmod_info.c
 @@ -8,7 +8,7 @@ extern kern_return_t _start(kmod_info_t *ki, void *data);
@@ -1223,7 +1305,7 @@ index 4a60c13..a96f7f6 100644
  
  __attribute__((visibility("default")))
 -KMOD_EXPLICIT_DECL(local.experimental.itlmt7922, "0.2.2", _start, _stop)
-+KMOD_EXPLICIT_DECL(local.x1605va.MT7902WiFi, "0.2.1", _start, _stop)
++KMOD_EXPLICIT_DECL(local.x1605va.MT7902WiFi, "0.2.2", _start, _stop)
  __private_extern__ kmod_start_func_t *_realmain = 0;
  __private_extern__ kmod_stop_func_t *_antimain = 0;
  __private_extern__ int _kext_apple_cc = __APPLE_CC__;
@@ -1428,3 +1510,22 @@ index 0000000..0bf2674
 +    CHECK(mt7902DecodeJoin(wire, sizeof(wire), nullptr) == Mt7902JoinResult::Invalid);
 +    puts("Native join decoder passed PMK/PMKSA, BSSID, authentication, length, and truncation checks.");
 +}
+diff --git a/tests/test_data_tx_codec.cpp b/tests/test_data_tx_codec.cpp
+index 10e088a..21aa3fc 100644
+--- a/tests/test_data_tx_codec.cpp
++++ b/tests/test_data_tx_codec.cpp
+@@ -27,10 +27,11 @@ static void test_tx_golden()
+     uint8_t f[40] = {}, w[32] = {};
+     f[0] = 0xb0; f[4] = 2;
+     Mt7922TxOptions o = {};
+-    o.wlan_index = 1; o.queue = 16; o.fixed_rate = 0x4b; o.spe_index = 24; o.sequence = -1;
++    o.wlan_index = 1; o.queue = 16; o.fixed_rate = 0x4b; o.spe_index = 0; o.sequence = -1;
+     assert(mt7922_encode_txwi(w, f, 30, o));
+-    // Linux Connac2 auth request, OFDM6, OMAC0/WCID1/ALTX0, 2-chain SPE.
+-    const uint32_t auth[] = {0x2000003e,0x80026001,0x8000200b,0x10007800,0,0x403,0x004b0004,0x000bc000};
++    // Linux Connac2 auth request, OFDM6, OMAC0/WCID1/ALTX0.
++    // mt76 skips SPE_IDX for Connac2, including MT7902.
++    const uint32_t auth[] = {0x2000003e,0x80026001,0x8000200b,0x10007800,0,0x403,0x004b0004,0x000b0000};
+     for (unsigned i = 0; i < 8; i++) assert(u32(w + 4*i) == auth[i]);
+     memset(f, 0, sizeof(f)); f[0] = 0x88; f[1] = 0x41; f[4] = 2;
+     o.queue = 1; o.tid = 5; o.sequence = 0xabc; o.rate_adapt = 1; o.protect = 1; o.aggregate = 1;

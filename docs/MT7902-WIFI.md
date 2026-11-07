@@ -49,6 +49,26 @@ The frontend matches on that property and gets the same station address the
 radio uses on air. Build checks cover the two kext bundles and PCI personality.
 Association, DHCP, and traffic on the MT7902 require a hardware run.
 
+## Authentication changes in 0.2.2
+
+The X1605VA's 0.2.1 report reached `auth-fail` on channel 11 after accepting
+the native PMK. The WPA2 four-way handshake had not started. That report
+does not distinguish a missing authentication response from an AP rejection.
+
+Version 0.2.2 clears the fixed-rate TX descriptor's SPE index, following
+`mt76_connac2_mac_write_txwi`, which writes that field only for devices outside
+the Connac2 family. MT7902 is Connac2. It also keeps BSS RLM transmit streams
+and receive chain mask at one when HT/VHT is enabled, and rejects authentication
+or association responses shorter than their 30-byte fixed fields.
+CI now runs the RX/data/TX codec suites as well as the native join and WPA2
+protocol suites. Passing these checks does not establish a successful MT7902 join.
+
+The `wifi-auth-result` property records authentication algorithm, transaction
+and IEEE status when a response is accepted. `wifi-mgmt` records request type,
+attempts, queued packets, response presence and RX/TX completion counters.
+These properties survive a failed attempt in the current boot. The diagnostic
+collector also includes the existing `m3-log` and native request trace.
+
 ## Connection changes in 0.2.1
 
 The frontend accepts WPA2-Personal PMK and PMKSA key types 6 and 7, matching
@@ -67,7 +87,7 @@ messages. Capture them after one connection attempt.
 
 ```sh
 ioreg -r -c itlmt7925WifiInterface -d 1 -l -w0 | grep -E 'mt7902-join-'
-ioreg -r -c itlmt7922 -d 1 -l -w0 | grep -E 'port-version|m3-res|wifi-error|wifi-handshake|wifi-pmkid-match'
+ioreg -r -c itlmt7922 -d 1 -l -w0 | grep -E 'port-version|m3-res|wifi-error|wifi-handshake|wifi-pmkid-match|wifi-auth-result|wifi-mgmt'
 ```
 
 ## REA analysis and source references
