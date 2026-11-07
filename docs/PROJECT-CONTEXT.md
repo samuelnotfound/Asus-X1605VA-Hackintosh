@@ -53,7 +53,27 @@ References:
 - https://github.com/hieplpvip/AsusSMC/blob/master/AsusSMC/AsusSMC.cpp
 - https://learn.chatgpt.com/docs/agent-configuration/agents-md
 
-## Next investigation
+## New investigation on 2026-11-07
+
+Read `docs/F9-MIC-LED.md` for the detailed new findings and the 0.2.0 test boundary. The original "no dump available" situation below is superseded: a saved 620086-byte original DSDT and accompanying SSDTs were found on the mounted OpenCore volume and inspected offline. No full dump was committed.
+
+The saved firmware's mic LED DEVS branch calls `\_SB.SGOV(0x09020007, state)`, a binary GPIO output. Its EC query `_Q16` forwards event `0x7C`. The static _WDG buffer contains no LED write. None of these offline findings establishes the reason for the probe freeze.
+
+A 0.2.0 candidate source binds directly to ATKD, eliminates the old runtime probe and registry search, and queues explicit SGOV writes. The CLI now calls its cached provider check `check` and refuses requests to loaded versions other than 0.2.0. It remains LED-only and hardware-unvalidated; F9/audio synchronization is not implemented. The bundled EFI driver/tool remain 0.1.1. Their existing MediaTek-profile driver entry is disabled; the Realtek profile has no such entry. No automatic LED writes occur at candidate startup.
+
+This command environment saw the target's cached registry (AsusSMC 1.4.1, old LED 0.1.1 and X1605VA codec), but CoreAudio returned default input ID zero and system_profiler listed no devices. `sudo` was denied. Therefore it cannot establish live microphone muting or load the new driver using sudo. No firmware write or reboot was executed.
+
+## Current boot-file state and next user action
+
+The 0.2.0 candidate compiled as an x86_64 KEXTBUNDLE and passed codesign verification. The new CLI's `status` read the loaded 0.1.1 cached state; `check` correctly refused to send a request to that old version. The SDK linker warned that libkmod startup objects were built for macOS 26.5 while the chosen deployment target is 11.0; only the current Tahoe target is intended for this experiment. No GPIO write was tested.
+
+After the user granted filesystem access, the compiled 0.2.0 kext and matching tool were staged on the mounted OPENCORE volume. Its existing LED entry stays enabled for the next boot; only the entry comment changed, and the rest of the active config was compared structurally against the backup. Files were copied and signature/content verified. An initial attempt to replace the bundle directory was denied at directory removal; the old files were restored and verified before completing a file-by-file replacement inside the existing bundle.
+
+A local backup of the previous kext, tool and private active configuration is in the chat's outputs folder under `LED-backup-before-0.2.0-20261107`, with restoration notes. The candidate ZIP is `AsusMicMuteLED-0.2.0-candidate.zip` in that same outputs folder. These artifacts are not committed to Git. The repository's bundled binaries remain old and its MediaTek profile disables them; pulling Git alone does not reproduce the separately staged candidate.
+
+**Pending user action:** reboot using that OpenCore volume, then return to Codex. No reboot was initiated. First inspect only `micled status` and cached IORegistry properties: confirm 0.2.0 and the ATKD provider binding. Do not assume the new driver loaded from a changed boot file. Do not send old `probe` commands. A new SGOV write still requires staged hardware validation; neither the source fix nor the LED/microphone goal is confirmed. F9-to-CoreAudio synchronization is not implemented yet.
+
+## Earlier investigation plan (review against the new findings above)
 
 1. Obtain an existing original DSDT plus accompanying SSDTs from the target, ideally OpenCore SysReport/ACPI. The repository baseline contains injected AML patches but no complete original firmware-table dump. Inspect dumps offline before another firmware-access test.
 2. Trace ATKD._WDG, WMNB, the DEVS branch for 0x00040017, underlying EC/firmware helpers, and relevant locking/waits. Check the target BIOS and which OpenCore profile is actually deployed; do not assume BIOS305 or the i5/i9 variant from inherited comments.

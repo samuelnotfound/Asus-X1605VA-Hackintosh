@@ -22,21 +22,33 @@ static CFDictionaryRef readStatus(io_service_t service) {
 }
 
 int main(int argc, char **argv) {
-    if (argc != 2 || (strcmp(argv[1],"status") && strcmp(argv[1],"probe") &&
+    if (argc != 2 || (strcmp(argv[1],"status") && strcmp(argv[1],"check") &&
                       strcmp(argv[1],"on") && strcmp(argv[1],"off"))) {
-        fprintf(stderr,"Usage: micled status | sudo micled probe|on|off\n");
+        fprintf(stderr,"Usage: micled status | sudo micled check|on|off\n");
         return 2;
     }
     io_service_t service = IOServiceGetMatchingService(
-        kIOMainPortDefault, IOServiceMatching("AsusMicMuteLED"));
+        kIOMasterPortDefault, IOServiceMatching("AsusMicMuteLED"));
     if (!service) {
         fprintf(stderr,"AsusMicMuteLED.kext is not loaded.\n");
         return 1;
     }
+    // Never send this client's commands to the known-freezing 0.1.x driver.
+    if (strcmp(argv[1], "status")) {
+        CFTypeRef version = IORegistryEntryCreateCFProperty(service, CFSTR("Version"), NULL, 0);
+        int compatible = version && CFGetTypeID(version) == CFStringGetTypeID() &&
+            CFEqual(version, CFSTR("0.2.0"));
+        if (version) CFRelease(version);
+        if (!compatible) {
+            fprintf(stderr, "Refusing: loaded LED driver is not 0.2.0. Reboot with the candidate first.\n");
+            IOObjectRelease(service);
+            return 1;
+        }
+    }
     int exitCode = 1;
     long long requestID = 0;
     if (strcmp(argv[1],"status")) {
-        int op = !strcmp(argv[1],"probe") ? 0 : !strcmp(argv[1],"on") ? 1 : 2;
+        int op = !strcmp(argv[1],"check") ? 0 : !strcmp(argv[1],"on") ? 1 : 2;
         requestID = ((long long)getpid() << 32) | arc4random();
         CFNumberRef id = CFNumberCreate(NULL,kCFNumberLongLongType,&requestID);
         CFNumberRef action = CFNumberCreate(NULL,kCFNumberIntType,&op);
@@ -47,7 +59,7 @@ int main(int argc, char **argv) {
         kern_return_t result = IORegistryEntrySetCFProperties(service,params);
         CFRelease(params); CFRelease(id); CFRelease(action);
         if (result != KERN_SUCCESS) {
-            fprintf(stderr,"Request rejected: 0x%08x. Run probe before on/off.\n",result);
+            fprintf(stderr,"Request rejected: 0x%08x. Run check before on/off.\n",result);
             IOObjectRelease(service);
             return 1;
         }

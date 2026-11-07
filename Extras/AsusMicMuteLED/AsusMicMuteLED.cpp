@@ -17,8 +17,6 @@ class AsusMicMuteLED : public IOService {
     IOACPIPlatformDevice *device {nullptr};
     static void work(thread_call_param_t owner, thread_call_param_t);
     void run();
-    IOACPIPlatformDevice *findATK();
-    IOReturn probe();
     IOReturn writeLED(UInt32 state, UInt32 *reply);
     void publish(const char *stage, bool complete, IOReturn result, UInt32 reply);
 public:
@@ -32,18 +30,32 @@ OSDefineMetaClassAndStructors(AsusMicMuteLED, IOService)
 bool AsusMicMuteLED::start(IOService *provider) {
     if (!IOService::start(provider))
         return false;
+    // Bind directly to the ATKD provider. Never walk the ACPI registry on request.
+    device = OSDynamicCast(IOACPIPlatformDevice, provider);
+    if (!device || strcmp(device->getName(), "ATKD")) {
+        device = nullptr;
+        return false;
+    }
+    device->retain();
     lock = IOLockAlloc();
     worker = thread_call_allocate(work, this);
     if (!lock || !worker)
         return false;
-    setProperty("Version", "0.1.1");
-    setProperty("Mode", "manual queued LED control; status is cached");
+    setProperty("Version", "0.2.0");
+    setProperty("Mode", "EXPERIMENTAL direct SGOV; cached provider check only");
+    setProperty("ProviderBound", true);
+    setProperty("FirmwareValidated", false);
+    setProperty("GPIOPin", 0x09020007ULL, 32);
     publish("idle", true, kIOReturnSuccess, 0);
     registerService();
     return true;
 }
 
 void AsusMicMuteLED::stop(IOService *provider) {
+    if (!lock || !worker) {
+        IOService::stop(provider);
+        return;
+    }
     IOLockLock(lock);
     stopping = true;
     IOLockUnlock(lock);
@@ -61,71 +73,23 @@ void AsusMicMuteLED::free() {
     IOService::free();
 }
 
-IOACPIPlatformDevice *AsusMicMuteLED::findATK() {
-    auto iterator = IORegistryIterator::iterateOver(
-        gIOACPIPlane, kIORegistryIterateRecursively);
-    if (!iterator)
-        return nullptr;
-    IOACPIPlatformDevice *found = nullptr;
-    while (auto entry = iterator->getNextObject()) {
-        auto candidate = OSDynamicCast(IOACPIPlatformDevice, entry);
-        if (candidate && !strcmp(candidate->getName(), "ATKD")) {
-            candidate->retain();
-            found = candidate;
-            break;
-        }
-    }
-    iterator->release();
-    return found;
-}
-
-IOReturn AsusMicMuteLED::probe() {
-    if (!device)
-        device = findATK();
-    if (!device)
-        return kIOReturnNotFound;
-    if (device->validateObject("WMNB") != kIOReturnSuccess)
-        return kIOReturnUnsupported;
-    OSObject *object = nullptr;
-    auto status = device->evaluateObject("_WDG", &object);
-    auto data = OSDynamicCast(OSData, object);
-    bool found = false;
-    // 97845ED0-4E6D-11DE-8A39-0800200C9A66, method NB, instance 0.
-    const UInt8 guid[16] = {0xD0,0x5E,0x84,0x97,0x6D,0x4E,0xDE,0x11,
-                           0x8A,0x39,0x08,0x00,0x20,0x0C,0x9A,0x66};
-    if (status == kIOReturnSuccess && data && data->getLength() % 20 == 0) {
-        auto bytes = static_cast<const UInt8 *>(data->getBytesNoCopy());
-        for (unsigned i = 0; i < data->getLength(); i += 20)
-            if (!memcmp(bytes + i, guid, 16) &&
-                bytes[i+16] == 'N' && bytes[i+17] == 'B' &&
-                bytes[i+18] >= 1 && (bytes[i+19] & 2))
-                found = true;
-    }
-    if (object)
-        object->release();
-    return found ? kIOReturnSuccess : kIOReturnUnsupported;
-}
-
 IOReturn AsusMicMuteLED::writeLED(UInt32 state, UInt32 *reply) {
-    // Match Linux asus_wmi_evaluate_method3: device ID, state, reserved zero.
-    const UInt32 args[3] = {0x00040017, state, 0};
-    OSObject *parameters[3] = {
-        OSNumber::withNumber(static_cast<unsigned long long>(0), 32),
-        OSNumber::withNumber(0x53564544U, 32),
-        OSData::withBytes(args, sizeof(args))
+    // X1605VA BIOS305 DEVS(0x40017, state) calls this exact GPIO helper.
+    // Its return is void; evaluateObject must be used, not evaluateInteger.
+    // No WMNB, _WDG, DSTS or registry traversal is performed here.
+    OSObject *parameters[2] = {
+        OSNumber::withNumber(0x09020007ULL, 32),
+        OSNumber::withNumber(static_cast<unsigned long long>(state != 0), 32)
     };
-    if (!parameters[0] || !parameters[1] || !parameters[2]) {
+    if (!parameters[0] || !parameters[1]) {
         for (auto parameter : parameters)
-            if (parameter)
-                parameter->release();
+            if (parameter) parameter->release();
         return kIOReturnNoMemory;
     }
-    auto status = device->evaluateInteger("WMNB", reply, parameters, 3);
-    for (auto parameter : parameters)
-        parameter->release();
-    if (status == kIOReturnSuccess && *reply == 0xFFFFFFFEU)
-        return kIOReturnUnsupported;
-    return status;
+    auto result = device->evaluateObject("\\_SB.SGOV", nullptr, parameters, 2);
+    for (auto parameter : parameters) parameter->release();
+    *reply = 0; // SGOV has no return value; this is NOT GPIO readback.
+    return result;
 }
 
 void AsusMicMuteLED::publish(const char *stage, bool complete,
@@ -163,16 +127,17 @@ void AsusMicMuteLED::run() {
     UInt32 reply = 0;
     IOReturn result;
     if (op == 0) {
-        publish("probe-descriptor", false, kIOReturnSuccess, 0);
-        result = probe();
+        // A cached provider check only. No ACPI method is executed by probe.
+        publish("provider-check", false, kIOReturnSuccess, 0);
+        result = device ? kIOReturnSuccess : kIOReturnNotReady;
         IOLockLock(lock);
         probeOK = result == kIOReturnSuccess;
         IOLockUnlock(lock);
     } else {
-        publish("before-DEVS", false, kIOReturnSuccess, 0);
+        publish("before-SGOV", false, kIOReturnSuccess, 0);
         result = writeLED(op == 1 ? 1 : 0, &reply);
     }
-    publish(op == 0 ? "probe-complete" : "write-complete", true, result, reply);
+    publish(op == 0 ? "provider-check-complete" : "write-complete-no-readback", true, result, reply);
     IOLockLock(lock);
     busy = false;
     IOLockUnlock(lock);

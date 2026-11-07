@@ -1656,9 +1656,9 @@
 				<key>BundlePath</key>
 				<string>AsusMicMuteLED.kext</string>
 				<key>Comment</key>
-				<string>X1605VA queued F9 LED control 0.1.1; probe required</string>
+				<string>DISABLED: 0.1.1 probe/on freeze; see docs/F9-MIC-LED.md</string>
 				<key>Enabled</key>
-				<true/>
+				<false/>
 				<key>ExecutablePath</key>
 				<string>Contents/MacOS/AsusMicMuteLED</string>
 				<key>MaxKernel</key>
