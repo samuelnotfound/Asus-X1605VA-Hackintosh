@@ -20,12 +20,10 @@ This inventory was collected in Windows on the i5-13500H / MediaTek unit. See th
 | Component | Installed hardware |
 | --- | --- |
 | Motherboard | ASUS X1605VA |
-| CPU | Intel Core i5-13500H, 12 cores and 16 threads |
+| CPU | Intel Core i5-13500H, 12 cores and 16 threads, or Intel Core i9-13900H, 14 cores and 20 threads |
 | Graphics | Intel Iris Xe Graphics (`8086:a7a0`) |
 | Display | Internal `CMN1618` panel, 1920 × 1200 at 60 Hz |
-| Memory | 8 GB DDR4-3200 (2 × 4 GB, Micron and SK hynix) |
-| Storage | Samsung `MZVL4512HBLU-00BTW`, 512 GB NVMe SSD |
-| Wi-Fi | MediaTek MT7902 (`14c3:7902`, PCIe) |
+| Wi-Fi | MediaTek MT7902 (`14c3:7902`, or Realtek RTL8821CE (`10ec:c821`); |
 | Bluetooth | MediaTek MT7902 (`13d3:3579`, USB) |
 | Audio | Realtek ALC256 (`10ec:0256`) |
 | Trackpad | ASUS Precision Touchpad (`ASUE1306`) via Intel I²C (`8086:51e9`) |
@@ -33,20 +31,7 @@ This inventory was collected in Windows on the i5-13500H / MediaTek unit. See th
 | Fingerprint reader | ELAN (`04f3:0c90`, USB) |
 | USB controller | Intel xHCI (`8086:51ed`) |
 
-## Hardware on the i9 test unit
 
-This inventory is from the i9-13900H / Realtek unit.
-
-| Component | Installed hardware |
-| --- | --- |
-| Motherboard | ASUS X1605VA |
-| CPU | Intel Core i9-13900H, 14 cores and 20 threads |
-| Graphics | Intel Iris Xe Graphics (`8086:a7a0`) |
-| Memory | 16 GB DDR4-3200 (2 × 8 GB, Samsung and SK hynix) |
-| Storage | Samsung 990 PRO with heatsink, 2 TB NVMe SSD |
-| Wi-Fi | Realtek RTL8821CE (`10ec:c821`, PCIe) |
-| Audio | Realtek ALC256 (`10ec:0256`)
-|
 
 ## Graphics acceleration
 
@@ -62,10 +47,12 @@ The parent project maintains the Iris Xe patches. Follow its guide for graphics 
 | Internal microphone | Working |
 | Trackpad in macOS | Working with the patched VoodooI2C beta and VoodooI2CHID. [VoodooI2C fork](https://github.com/samuelnotfound/VoodooI2C) |
 | Trackpad in the OpenCore picker | Working with the custom ASUS UEFI driver. [Picker driver source](src/AsusX1605VATouchpadDxe) |
-| USB mouse, battery and keyboard backlight | Working |
-| Screen brightness | Adjustable with the XeShim utility. Brightness Fn keys are unresolved |
+| Battery and FN keys  Working |
+| Screen brightness | Adjustable with the XeShim utility. |
+| Wi-Fi | Unsupported on MediaTek. Working on Realtek |
 | Bluetooth | Working on MediaTek. Realtek Bluetooth is untested |
 | Sleep and wake | Untested |
+
 
 [Hardware notes](docs/ASUS-HARDWARE.md) · [Display tools](docs/INSTALL.md#after-the-first-accelerated-boot)
 
