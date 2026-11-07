@@ -45,6 +45,23 @@ The parent project maintains the Iris Xe patches. Follow its guide for graphics 
 
 [Hardware notes](docs/ASUS-HARDWARE.md) · [Display tools](docs/INSTALL.md#after-the-first-accelerated-boot)
 
+## Custom driver sources
+
+The submodules pin the ASUS-specific driver revisions used for this setup.
+
+| Source | Branch | Pinned commit |
+| --- | --- | --- |
+| [AppleALC](Sources/AppleALC) | x1605va-layout26-only | bb776a8 |
+| [VoodooI2C](Sources/VoodooI2C) | master | 5a5bd0d |
+
+To populate the source folders after cloning, run the following command.
+
+    git submodule update --init --recursive
+
+Git records the exact commits. Later fork updates take effect after updating the pins.
+
+The small [F9 mic-mute LED kext](Extras/AsusMicMuteLED) is included and enabled in the MediaTek config. Its companion tool tests the LED manually. Automatic synchronization with microphone mute remains to be implemented.
+
 ## Credits
 
 - ASUS EFI baseline. [Heitorpoggi’s Vivobook project](https://github.com/Heitorpoggi/ASUS-VivoBook-16X-Hackintosh-)
