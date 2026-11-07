@@ -1,0 +1,20 @@
+name: Build mic-mute LED test
+on:
+  push:
+    branches: [mic-mute-led-test]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: bash Extras/AsusMicMuteLED/build.sh
+      - uses: actions/upload-artifact@v5
+        with:
+          name: AsusMicMuteLED-0.1.0
+          path: |
+            Extras/AsusMicMuteLED/out/AsusMicMuteLED.kext
+            Extras/AsusMicMuteLED/out/micled
+          if-no-files-found: error
