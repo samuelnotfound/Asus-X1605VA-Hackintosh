@@ -24,7 +24,7 @@ Both ASUS Vivobook X1605VA variants below were tested on **macOS Tahoe 26.7.2** 
 
 ## Graphics acceleration
 
-Iris Xe acceleration requires the macOS graphics patches in addition to the EFI. [Graphics setup](docs/ASUS-GRAPHICS.md)
+Intel Xe acceleration requires the macOS graphics patches in addition to the EFI. [Graphics setup](docs/ASUS-GRAPHICS.md)
 
 The parent project maintains the Iris Xe patches. Follow its guide for graphics updates. [Upstream graphics updates](https://github.com/JulioNectar/Hackintosh-XPS13Plus-IrisXe-Tahoe/blob/main/docs/INSTALL.md#updating-an-existing-install) · [Verify acceleration after reboot](docs/INSTALL.md#after-the-first-accelerated-boot)
 
