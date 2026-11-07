@@ -1,47 +1,86 @@
 #include <CoreFoundation/CoreFoundation.h>
 #include <IOKit/IOKitLib.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
+
+static long long number(CFDictionaryRef dict, CFStringRef key) {
+    CFTypeRef value = CFDictionaryGetValue(dict, key);
+    long long result = 0;
+    if (value && CFGetTypeID(value) == CFNumberGetTypeID())
+        CFNumberGetValue(value, kCFNumberLongLongType, &result);
+    return result;
+}
+
+static CFDictionaryRef readStatus(io_service_t service) {
+    CFTypeRef value = IORegistryEntryCreateCFProperty(service, CFSTR("Status"), NULL, 0);
+    if (value && CFGetTypeID(value) == CFDictionaryGetTypeID())
+        return (CFDictionaryRef)value;
+    if (value) CFRelease(value);
+    return NULL;
+}
 
 int main(int argc, char **argv) {
-    if (argc != 2 || (strcmp(argv[1], "on") && strcmp(argv[1], "off") &&
-                      strcmp(argv[1], "status"))) {
-        fprintf(stderr, "Usage: sudo micled on|off|status\n");
+    if (argc != 2 || (strcmp(argv[1],"status") && strcmp(argv[1],"probe") &&
+                      strcmp(argv[1],"on") && strcmp(argv[1],"off"))) {
+        fprintf(stderr,"Usage: micled status | sudo micled probe|on|off\n");
         return 2;
     }
     io_service_t service = IOServiceGetMatchingService(
         kIOMainPortDefault, IOServiceMatching("AsusMicMuteLED"));
     if (!service) {
-        fprintf(stderr, "AsusMicMuteLED.kext is not loaded.\n");
+        fprintf(stderr,"AsusMicMuteLED.kext is not loaded.\n");
         return 1;
     }
-    CFMutableDictionaryRef request = CFDictionaryCreateMutable(
-        NULL, 0, &kCFTypeDictionaryKeyCallBacks,
-        &kCFTypeDictionaryValueCallBacks);
-    if (!strcmp(argv[1], "status")) {
-        CFDictionarySetValue(request, CFSTR("ReadMicMuteLED"), kCFBooleanTrue);
-    } else {
-        int state = !strcmp(argv[1], "on");
-        CFNumberRef value = CFNumberCreate(NULL, kCFNumberIntType, &state);
-        CFDictionarySetValue(request, CFSTR("MicMuteLED"), value);
-        CFRelease(value);
+    int exitCode = 1;
+    long long requestID = 0;
+    if (strcmp(argv[1],"status")) {
+        int op = !strcmp(argv[1],"probe") ? 0 : !strcmp(argv[1],"on") ? 1 : 2;
+        requestID = ((long long)getpid() << 32) | arc4random();
+        CFNumberRef id = CFNumberCreate(NULL,kCFNumberLongLongType,&requestID);
+        CFNumberRef action = CFNumberCreate(NULL,kCFNumberIntType,&op);
+        const void *keys[] = {CFSTR("RequestID"),CFSTR("Operation")};
+        const void *values[] = {id,action};
+        CFDictionaryRef params = CFDictionaryCreate(NULL,keys,values,2,
+            &kCFTypeDictionaryKeyCallBacks,&kCFTypeDictionaryValueCallBacks);
+        kern_return_t result = IORegistryEntrySetCFProperties(service,params);
+        CFRelease(params); CFRelease(id); CFRelease(action);
+        if (result != KERN_SUCCESS) {
+            fprintf(stderr,"Request rejected: 0x%08x. Run probe before on/off.\n",result);
+            IOObjectRelease(service);
+            return 1;
+        }
     }
-    kern_return_t result = IORegistryEntrySetCFProperties(service, request);
-    CFRelease(request);
-    if (result != KERN_SUCCESS) {
-        fprintf(stderr, "LED request failed: 0x%08x\n", result);
-        IOObjectRelease(service);
-        return 1;
+    char previous[128] = "";
+    for (int i=0; i<200; ++i) {
+        CFDictionaryRef status = readStatus(service);
+        if (status) {
+            long long seenID = number(status,CFSTR("RequestID"));
+            CFTypeRef step = CFDictionaryGetValue(status,CFSTR("Stage"));
+            char stage[128] = "unknown";
+            if (step && CFGetTypeID(step)==CFStringGetTypeID())
+                CFStringGetCString(step,stage,sizeof(stage),kCFStringEncodingUTF8);
+            if (!requestID || seenID==requestID) {
+                if (strcmp(stage,previous)) {
+                    printf("%s (result 0x%08x, firmware reply 0x%08x)\n",stage,
+                        (unsigned)number(status,CFSTR("Result")),
+                        (unsigned)number(status,CFSTR("FirmwareReply")));
+                    fflush(stdout);
+                    strcpy(previous,stage);
+                }
+                if (!requestID || CFDictionaryGetValue(status,CFSTR("Complete"))==kCFBooleanTrue) {
+                    exitCode=number(status,CFSTR("Result")) ? 1 : 0;
+                    CFRelease(status);
+                    break;
+                }
+            }
+            CFRelease(status);
+        }
+        usleep(100000);
     }
-    CFTypeRef value = IORegistryEntryCreateCFProperty(
-        service, CFSTR("MicMuteLEDState"), NULL, 0);
-    int state = -1;
-    if (value && CFGetTypeID(value) == CFNumberGetTypeID())
-        CFNumberGetValue(value, kCFNumberIntType, &state);
-    if (value)
-        CFRelease(value);
+    if (exitCode && requestID)
+        fprintf(stderr,"Request failed or timed out. A timeout does not cancel a firmware call.\n");
     IOObjectRelease(service);
-    printf("Firmware reports F9 mic-mute LED %s\n",
-           state == 1 ? "on" : state == 0 ? "off" : "unknown");
-    return state < 0;
+    return exitCode;
 }

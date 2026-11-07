@@ -13,7 +13,7 @@ jobs:
       - run: bash Extras/AsusMicMuteLED/build.sh
       - uses: actions/upload-artifact@v5
         with:
-          name: AsusMicMuteLED-0.1.0
+          name: AsusMicMuteLED-0.1.1
           path: |
             Extras/AsusMicMuteLED/out/AsusMicMuteLED.kext
             Extras/AsusMicMuteLED/out/micled
