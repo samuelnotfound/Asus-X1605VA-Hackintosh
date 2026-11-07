@@ -61,7 +61,7 @@ IOReturn AsusMicMuteLED::evaluate(IOACPIPlatformDevice *device,
                                  UInt32 *result) {
     const UInt32 args[2] = {0x00040017, state};
     OSObject *parameters[3] = {
-        OSNumber::withNumber(0, 32),
+        OSNumber::withNumber(static_cast<unsigned long long>(0), 32),
         OSNumber::withNumber(method, 32),
         OSData::withBytes(args, sizeof(args))
     };
