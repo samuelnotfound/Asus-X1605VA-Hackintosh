@@ -1,19 +1,23 @@
 # AsusMicMuteLED
 
-Version 0.1.0 froze macOS when an on/off command was issued on this X1605VA. Its EFI entry is disabled pending diagnosis.
+Manual F9 microphone LED control for ASUS Vivobook X1605VA.
 
-Manual F9 microphone-mute LED control for ASUS Vivobook X1605VA. This driver uses ATKD WMNB device 0x00040017 and checks its presence before writing. Root permission is required.
+Version 0.1.0 froze this laptop when an on/off request was issued. Version 0.1.1 queues work outside the property setter and matches Linux's three-word WMI buffer. Status reads cached state. LED writes require a successful descriptor probe each boot. Hardware validation of 0.1.1 is pending.
 
-Run the tool in macOS after loading the kext.
+After rebooting, run the descriptor probe first.
 
-    sudo ./micled status
+    sudo ./micled probe
+    ./micled status
+
+The probe verifies ATKD's WMI management GUID, NB method and instance count. It reads the firmware descriptor and performs no LED GPIO operation. After verifying the probe result, a manual write can be tested with on or off. Those writes still need runtime validation.
+
+The tool reports request stages. A request timeout does not cancel a firmware operation. Kernel messages use the prefix AsusMicMuteLED.
+
     sudo ./micled on
     sudo ./micled off
 
-This version controls the LED independently of microphone audio. Confirm the physical light before adding audio-mute synchronization.
+This driver controls the LED independently of microphone audio. Automatic mute synchronization remains separate.
 
-Build with bash Extras/AsusMicMuteLED/build.sh. Output is in the out folder beside the source.
+Build with bash Extras/AsusMicMuteLED/build.sh on macOS. The out directory contains the kext and command-line tool. Disable the Kernel/Add entry for rollback.
 
-For OpenCore use executable Contents/MacOS/AsusMicMuteLED, plist Contents/Info.plist and architecture x86_64. Disable the Kernel/Add entry to roll back.
-
-The WMNB calling convention follows AsusSMC and this laptop's ACPI dump. Firmware calls occur only on tool requests.
+The interface follows this laptop's ATKD.WMNB descriptor and the Linux ASUS WMI implementation in drivers/platform/x86/asus-wmi.c. It uses device 0x00040017, DEVS method 0x53564544, instance zero and a reserved zero third word. The probe uses no DSTS call.

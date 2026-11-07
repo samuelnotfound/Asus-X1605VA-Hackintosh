@@ -60,7 +60,7 @@ To populate the source folders after cloning, run the following command.
 
 Git records the exact commits. Later fork updates take effect after updating the pins.
 
-The small [F9 mic-mute LED kext](Extras/AsusMicMuteLED) is included but disabled after an on/off command froze macOS. Firmware-call diagnosis is pending. Automatic synchronization with microphone mute remains to be implemented.
+The small [F9 mic-mute LED kext](Extras/AsusMicMuteLED) version 0.1.1 is included and enabled for staged testing in the MediaTek config. Run its descriptor probe before requesting an LED write. Hardware verification is pending. Automatic synchronization with microphone mute remains to be implemented.
 
 ## Credits
 
