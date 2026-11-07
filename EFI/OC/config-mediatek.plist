@@ -1658,7 +1658,7 @@
 				<key>Comment</key>
 				<string>X1605VA manual F9 microphone LED control 0.1.0</string>
 				<key>Enabled</key>
-				<true/>
+				<false/>
 				<key>ExecutablePath</key>
 				<string>Contents/MacOS/AsusMicMuteLED</string>
 				<key>MaxKernel</key>

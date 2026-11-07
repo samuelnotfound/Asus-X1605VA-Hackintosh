@@ -1,5 +1,7 @@
 # AsusMicMuteLED
 
+Version 0.1.0 froze macOS when an on/off command was issued on this X1605VA. Its EFI entry is disabled pending diagnosis.
+
 Manual F9 microphone-mute LED control for ASUS Vivobook X1605VA. This driver uses ATKD WMNB device 0x00040017 and checks its presence before writing. Root permission is required.
 
 Run the tool in macOS after loading the kext.
